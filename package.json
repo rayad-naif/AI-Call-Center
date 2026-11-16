@@ -1,0 +1,22 @@
+{
+  "name": "ai-call-center",
+  "version": "1.0.0",
+  "private": true,
+  "description": "BYOK AI Call Center for HighLevel agencies: one-click Twilio + Vapi + GHL provisioning, live command deck (listen, whisper, takeover), AI QA grading and CRM sync, white-label client portal.",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node --test test/*.test.js",
+    "db:init": "node scripts/init-db.js",
+    "demo": "node scripts/demo.js"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "dependencies": {
+    "@vercel/functions": "^3.11.3",
+    "express": "^4.21.2",
+    "mongodb": "^6.21.0"
+  }
+}

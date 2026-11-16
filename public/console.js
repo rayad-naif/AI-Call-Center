@@ -1,0 +1,351 @@
+/* Agency console: overview, BYOK keys, client deployments, branding, team, activity. */
+(function () {
+  'use strict';
+  const { api, h, toast, fmtTime, busy } = window.ACC;
+  const root = document.getElementById('console');
+  const TABS = [['overview', 'Overview'], ['keys', 'Keys'], ['clients', 'Clients'], ['branding', 'Branding'], ['team', 'Team'], ['activity', 'Activity']];
+  const OUTCOME_LABEL = {
+    appointment_booked: 'Appointment booked', qualified_lead: 'Qualified lead', support_resolved: 'Support resolved',
+    support_ticket: 'Support ticket', not_interested: 'Not interested', spam: 'Spam / robocall', voicemail: 'Voicemail', other: 'Other'
+  };
+  let state = { agency: null, tab: (location.hash.slice(1) || 'overview').split('/')[0] };
+
+  const field = (label, input, hint) => h('label', label, input, hint ? h('span.hint', hint) : null);
+  const input = (name, value, attrs) => h('input', Object.assign({ name, value: value == null ? '' : value }, attrs || {}));
+  const textarea = (name, value, attrs) => h('textarea', Object.assign({ name, rows: 4 }, attrs || {}), value || '');
+  const select = (name, options, value) => h('select', { name }, options.map(([v, l]) => h('option', { value: v, selected: v === value }, l)));
+  const badge = (status) => h('span.badge.' + status, status === 'none' ? 'not deployed' : status);
+  function formData(form) {
+    const o = {};
+    form.querySelectorAll('[name]').forEach((el) => {
+      if (el.type === 'checkbox') o[el.name] = el.checked;
+      else o[el.name] = el.value;
+    });
+    return o;
+  }
+
+  async function load() {
+    state.agency = await api('GET', '/api/agency');
+    render();
+  }
+
+  function render() {
+    root.innerHTML = '';
+    const nav = h('nav.tabs', TABS.map(([k, l]) => h('a', { href: '#' + k, class: state.tab === k ? 'active' : '' }, l)));
+    const body = h('section.tab-body');
+    root.append(h('div.console-head', h('div', h('h1', state.agency.name), h('p.muted', 'License: ', badge(state.agency.status))), h('a.btn.primary', { href: '/deck' }, 'Open Command Deck')), nav, body);
+    ({ overview, keys, clients, branding, team, activity })[state.tab](body);
+  }
+  window.addEventListener('hashchange', () => { state.tab = (location.hash.slice(1) || 'overview').split('/')[0]; if (TABS.some(([k]) => k === state.tab)) render(); });
+
+  /* ---------- overview ---------- */
+  async function overview(body) {
+    const k = state.agency.keys;
+    const ready = k.twilioSid.set && k.twilioToken.set && k.vapiKey.set && k.openaiKey.set;
+    const steps = [
+      ['Add your provider keys', ready, '#keys'],
+      ['Deploy your first client', false, '#clients'],
+      ['Brand the client portal', !!state.agency.branding.name || !!state.agency.branding.logoUrl, '#branding'],
+      ['Invite your team or clients', false, '#team']
+    ];
+    const statsBox = h('div.stats', h('div.spinner'));
+    body.append(
+      h('div.card', h('h2', 'Setup checklist'), h('ol.checklist', steps.map(([t, done, href]) => h('li', { class: done ? 'done' : '' }, h('a', { href }, t))))),
+      h('div.card', h('h2', 'Last 7 days'), statsBox)
+    );
+    const [s, deps] = await Promise.all([api('GET', '/api/live/stats'), api('GET', '/api/deployments')]);
+    if (deps.deployments.some((d) => d.status === 'live')) body.querySelectorAll('.checklist li')[1].classList.add('done');
+    statsBox.innerHTML = '';
+    statsBox.append(
+      stat('Live clients', deps.deployments.filter((d) => d.status === 'live').length),
+      stat('Calls', s.calls7d), stat('Minutes', s.minutes7d), stat('Booked', s.booked7d),
+      stat('Avg QA score', s.avgScore == null ? '—' : s.avgScore), stat('Vapi cost', '$' + s.cost7d.toFixed(2))
+    );
+  }
+  const stat = (label, value) => h('div.stat', h('div.stat-v', String(value)), h('div.stat-l', label));
+
+  /* ---------- keys ---------- */
+  function keys(body) {
+    const k = state.agency.keys;
+    const st = k.status || {};
+    const status = (name) => st[name] ? h('span.badge.' + (st[name].ok ? 'live' : 'failed'), st[name].ok ? 'Connected' : 'Failed', ' · ', st[name].detail) : h('span.badge.none', 'not checked');
+    const secretInput = (name, f) => input(name, '', { type: 'password', autocomplete: 'off', placeholder: f.set ? 'Saved (' + f.hint + '). Leave blank to keep.' : 'Paste key' });
+    const form = h('form.card.form-grid',
+      h('h2', 'Bring your own keys'),
+      h('p.muted', 'Usage is billed to your own accounts. Keys are checked live when saved and stored encrypted (AES-256-GCM). Keys that fail the check are not saved.'),
+      h('fieldset', h('legend', 'Twilio ', status('twilio')),
+        field('Account SID', input('twilioSid', '', { placeholder: k.twilioSid.set ? k.twilioSid.hint : 'AC…', autocomplete: 'off' })),
+        field('Auth Token', secretInput('twilioToken', k.twilioToken), 'Console → Account info. Used to create a subaccount and number per client.')),
+      h('fieldset', h('legend', 'Vapi ', status('vapi')),
+        field('Private API key', secretInput('vapiKey', k.vapiKey), 'Vapi dashboard → API Keys → Private key.')),
+      h('fieldset', h('legend', 'OpenAI ', status('openai')),
+        field('API key', secretInput('openaiKey', k.openaiKey), 'Powers the AI agents (through Vapi) and the call grader.')),
+      h('button.btn.primary', { type: 'submit' }, 'Check and save keys')
+    );
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const data = formData(form);
+      try {
+        const r = await busy(form.querySelector('button'), () => api('PUT', '/api/agency/keys', data));
+        state.agency.keys = r.keys;
+        const failed = Object.entries(r.keys.status).filter(([, v]) => !v.ok);
+        toast(failed.length ? 'Some keys failed: ' + failed.map(([n]) => n).join(', ') : 'Keys saved', failed.length ? 'err' : 'ok');
+        render();
+      } catch (err) { toast(err.message, 'err'); }
+    });
+    const setup = state.agency.setup;
+    body.append(form, h('div.card', h('h2', 'Agency resources'), h('ul.kv',
+      h('li', h('span', 'OpenAI key linked to Vapi'), h('strong', setup.vapiCredential ? 'Yes' : 'On first deploy')),
+      h('li', h('span', 'Browser takeover'), h('strong', setup.browserCalling ? 'Ready' : 'On first deploy')),
+      h('li', h('span', 'Takeover line'), h('strong', setup.takeoverNumber || '—')))));
+  }
+
+  /* ---------- clients ---------- */
+  async function clients(body) {
+    const sub = location.hash.split('/')[1];
+    if (sub) return editor(body, decodeURIComponent(sub));
+    const list = h('div.card', h('div.spinner'));
+    body.append(list);
+    try {
+      const r = await api('GET', '/api/locations');
+      list.innerHTML = '';
+      const q = input('q', '', { placeholder: 'Search sub-accounts…', type: 'search' });
+      const table = h('table.table');
+      const draw = () => {
+        const term = q.value.toLowerCase();
+        table.innerHTML = '';
+        table.append(h('thead', h('tr', h('th', 'Sub-account'), h('th', 'Status'), h('th', 'AI number'), h('th', ''))));
+        const tb = h('tbody');
+        r.locations.filter((l) => !term || (l.name || '').toLowerCase().includes(term)).forEach((l) => tb.append(h('tr',
+          h('td', h('strong', l.name), h('div.muted.small', [l.city, l.state].filter(Boolean).join(', '))),
+          h('td', badge(l.status)), h('td', l.phoneNumber || '—'),
+          h('td.right', h('a.btn.small' + (l.status === 'none' ? '.primary' : ''), { href: '#clients/' + encodeURIComponent(l.id) }, l.status === 'none' ? 'Set up' : 'Manage')))));
+        table.append(tb);
+      };
+      q.addEventListener('input', draw);
+      list.append(h('div.row-between', h('h2', 'Clients (' + r.locations.length + ' sub-accounts)'), q), table);
+      draw();
+    } catch (err) { list.innerHTML = ''; list.append(h('p.error', err.message)); }
+  }
+
+  async function editor(body, locationId) {
+    body.append(h('p', h('a', { href: '#clients' }, '← All clients')));
+    const box = h('div', h('div.spinner'));
+    body.append(box);
+    const [crm, existing] = await Promise.all([
+      api('GET', '/api/locations/' + encodeURIComponent(locationId) + '/crm').catch((e) => ({ error: e.message, pipelines: [], calendars: [], location: { id: locationId } })),
+      api('GET', '/api/deployments/' + encodeURIComponent(locationId)).catch(() => null)
+    ]);
+    const dep = existing && existing.deployment;
+    const a = (dep && dep.agent) || { businessName: crm.location.name, timezone: crm.location.timezone || 'America/New_York', voiceId: 'Elliot', appointmentMinutes: 60, extra: {}, recordCalls: true };
+    const opt = (dep && dep.options) || { country: 'US', areaCode: '', useSubaccount: true };
+    const pipe = (dep && dep.pipeline) || { pipelineId: '', stages: {} };
+    box.innerHTML = '';
+    if (crm.error) box.append(h('p.note.err', 'Could not read this sub-account from HighLevel: ' + crm.error));
+
+    const form = h('form.form-grid');
+    // Business
+    form.append(h('fieldset.card', h('legend', '1. Business'),
+      field('Business name', input('businessName', a.businessName, { required: true })),
+      field('Industry', input('industry', a.industry, { placeholder: 'e.g. plumbing' })),
+      field('Services offered', textarea('services', a.services, { placeholder: 'One per line, e.g. Water heater installation' })),
+      field('Service area', input('serviceArea', a.serviceArea)),
+      field('Business hours', input('hours', a.hours)),
+      field('Time zone', input('timezone', a.timezone, { placeholder: 'America/New_York' })),
+      field('Pricing the AI may share', textarea('pricing', a.pricing, { placeholder: 'e.g. Service call: $89, waived if work is booked' })),
+      field('Support FAQ', textarea('faq', a.faq, { rows: 6, placeholder: 'Q: … A: …' }))));
+    // Agents
+    form.append(h('fieldset.card', h('legend', '2. AI agents'),
+      field('Greeting', input('greeting', a.greeting, { placeholder: 'Thanks for calling …, who am I speaking with?' })),
+      field('Voice', select('voiceId', state.agency.voices.map((v) => [v, v]), a.voiceId)),
+      field('Tone', input('tone', a.tone)),
+      field('Human transfer number', input('transferNumber', a.transferNumber, { placeholder: '+15551234567' }), 'The AI transfers here when a caller asks for a person or it is an emergency.'),
+      h('label.row', h('input', { type: 'checkbox', name: 'recordCalls', checked: a.recordCalls !== false }), ' Record calls (recording link goes to the CRM)'),
+      h('details', h('summary', 'Extra instructions per agent'),
+        field('Receptionist', textarea('extra.receptionist', (a.extra || {}).receptionist)),
+        field('Sales', textarea('extra.sales', (a.extra || {}).sales)),
+        field('Support', textarea('extra.support', (a.extra || {}).support))),
+      h('button.btn.small', { type: 'button', on: { click: () => previewPrompts(form) } }, 'Preview prompts')));
+    // CRM
+    const calSel = select('calendarId', [['', 'No booking (collect preferred times)']].concat(crm.calendars.map((c) => [c.id, c.name])), a.calendarId || '');
+    const pipeSel = select('pipelineId', [['', 'Don\'t move opportunities']].concat(crm.pipelines.map((p) => [p.id, p.name])), pipe.pipelineId);
+    const stageBox = h('div.stage-map');
+    const drawStages = () => {
+      stageBox.innerHTML = '';
+      const p = crm.pipelines.find((x) => x.id === pipeSel.value);
+      if (!p) return;
+      state.agency.outcomes.forEach((o) => stageBox.append(field(OUTCOME_LABEL[o] || o, select('stage.' + o, [['', '— leave as is —']].concat(p.stages.map((s) => [s.id, s.name])), (pipe.stages || {})[o] || ''))));
+    };
+    pipeSel.addEventListener('change', drawStages);
+    form.append(h('fieldset.card', h('legend', '3. Calendar and pipeline'),
+      field('Booking calendar (Sales agent)', calSel),
+      field('Appointment length (minutes)', input('appointmentMinutes', a.appointmentMinutes, { type: 'number', min: 15, max: 480 })),
+      field('Pipeline for call outcomes', pipeSel, 'HighLevel\'s API cannot create pipelines; pick one from your snapshot.'),
+      stageBox));
+    drawStages();
+    // Number
+    form.append(h('fieldset.card', h('legend', '4. Phone number'),
+      dep && dep.phoneNumber ? h('p', 'Number: ', h('strong', dep.phoneNumber)) : null,
+      field('Country', input('country', opt.country, { maxlength: 2 })),
+      field('Preferred area code', input('areaCode', opt.areaCode, { maxlength: 3, placeholder: 'e.g. 512' })),
+      h('label.row', h('input', { type: 'checkbox', name: 'useSubaccount', checked: opt.useSubaccount !== false, disabled: !!(dep && dep.phoneNumber) }), ' Separate Twilio subaccount for this client')));
+
+    const save = async () => {
+      const d = formData(form);
+      const agent = { extra: {} };
+      ['businessName', 'industry', 'services', 'serviceArea', 'hours', 'timezone', 'pricing', 'faq', 'greeting', 'voiceId', 'tone', 'transferNumber', 'recordCalls', 'calendarId', 'appointmentMinutes'].forEach((k) => { agent[k] = d[k]; });
+      ['receptionist', 'sales', 'support'].forEach((r) => { agent.extra[r] = d['extra.' + r]; });
+      const stages = {};
+      state.agency.outcomes.forEach((o) => { if (d['stage.' + o]) stages[o] = d['stage.' + o]; });
+      return api('PUT', '/api/deployments/' + encodeURIComponent(locationId), {
+        name: d.businessName, agent, pipeline: { pipelineId: d.pipelineId, stages },
+        options: { country: (d.country || 'US').toUpperCase(), areaCode: d.areaCode, useSubaccount: d.useSubaccount }
+      });
+    };
+
+    const stepsBox = h('div.card.steps');
+    const drawSteps = (dp) => {
+      stepsBox.innerHTML = '';
+      if (!dp) return;
+      stepsBox.append(...[h('div.row-between', h('h2', 'Deployment ', badge(dp.status)), dp.status === 'live' ? h('a.btn.small', { href: '/deck?location=' + encodeURIComponent(locationId) }, 'Open deck') : null),
+        dp.lastError ? h('p.note.err', dp.lastError) : null,
+        h('ol.step-list', dp.steps.map((s) => h('li.' + s.status, h('span.dot'), h('span', s.label), h('span.muted.small', s.detail || '')))),
+        dp.status === 'live' ? h('ul.kv',
+          h('li', h('span', 'AI phone number'), h('strong', dp.phoneNumber)),
+          h('li', h('span', 'Client deck URL'), h('code', dp.portalUrl)),
+          h('li', h('span', 'Vapi squad'), h('code', dp.vapi.squadId || '—'))) : null].filter(Boolean));
+    };
+    drawSteps(dep);
+
+    const deployBtn = h('button.btn.primary', { type: 'button' }, dep && dep.status === 'live' ? 'Redeploy everything' : (dep && dep.status === 'failed' ? 'Resume deployment' : 'Deploy call center'));
+    const updateBtn = h('button.btn', { type: 'button', hidden: !(dep && dep.status === 'live') }, 'Save and update agents only');
+    const testBtn = h('button.btn', { type: 'button', hidden: !(dep && dep.status === 'live') }, 'Test call my phone');
+    const removeBtn = h('button.btn.danger', { type: 'button', hidden: !(dep && ['live', 'failed'].includes(dep.status)) }, 'Remove…');
+
+    deployBtn.addEventListener('click', () => busy(deployBtn, async () => {
+      if (!form.reportValidity()) return;
+      try {
+        await save();
+        deployBtn.textContent = 'Deploying…';
+        // Poll progress while the (blocking) deploy request runs.
+        const poll = setInterval(async () => { const r = await api('GET', '/api/deployments/' + encodeURIComponent(locationId)).catch(() => null); if (r) drawSteps(r.deployment); }, 1200);
+        try {
+          const r = await api('POST', '/api/deployments/' + encodeURIComponent(locationId) + '/deploy', {});
+          drawSteps(r.deployment);
+          toast('Call center is live on ' + r.deployment.phoneNumber, 'ok');
+          updateBtn.hidden = testBtn.hidden = removeBtn.hidden = false;
+        } catch (err) {
+          if (err.data && err.data.deployment) drawSteps(err.data.deployment);
+          toast(err.message, 'err');
+          removeBtn.hidden = false;
+        } finally { clearInterval(poll); }
+      } catch (err) { toast(err.message, 'err'); }
+    }));
+    updateBtn.addEventListener('click', () => busy(updateBtn, async () => {
+      try {
+        await save();
+        await api('POST', '/api/deployments/' + encodeURIComponent(locationId) + '/agents', {});
+        toast('Agents updated', 'ok');
+      } catch (err) { toast(err.message, 'err'); }
+    }));
+    testBtn.addEventListener('click', async () => {
+      const n = prompt('Your phone number (international format, e.g. +15551234567)');
+      if (!n) return;
+      try { await api('POST', '/api/deployments/' + encodeURIComponent(locationId) + '/test-call', { number: n }); toast('Calling ' + n + '…', 'ok'); } catch (err) { toast(err.message, 'err'); }
+    });
+    removeBtn.addEventListener('click', async () => {
+      if (!confirm('Remove this call center? The AI agents are deleted and the phone number is released (it cannot be recovered).')) return;
+      const close = confirm('Also close the client\'s Twilio subaccount?');
+      try {
+        const r = await busy(removeBtn, () => api('POST', '/api/deployments/' + encodeURIComponent(locationId) + '/teardown', { closeSubaccount: close }));
+        toast(r.errors.length ? 'Removed with errors: ' + r.errors.join('; ') : 'Removed', r.errors.length ? 'err' : 'ok');
+        location.hash = '#clients';
+      } catch (err) { toast(err.message, 'err'); }
+    });
+    box.append(h('div.editor', form, h('aside', stepsBox, h('div.card.actions', deployBtn, updateBtn, testBtn, removeBtn,
+      h('p.muted.small', 'Deploying creates a Twilio number (billed to your Twilio account), three Vapi assistants, a squad, and CRM fields.')))));
+  }
+
+  async function previewPrompts(form) {
+    const d = formData(form);
+    const r = await api('POST', '/api/agents/preview', { agent: Object.assign({}, d, { extra: { receptionist: d['extra.receptionist'], sales: d['extra.sales'], support: d['extra.support'] } }) });
+    const dlg = h('dialog.modal', h('h2', 'Generated prompts'), Object.entries(r.prompts).map(([role, p]) => [h('h3', role), h('pre.prompt', p)]), h('form', { method: 'dialog' }, h('button.btn', 'Close')));
+    document.body.append(dlg);
+    dlg.addEventListener('close', () => dlg.remove());
+    dlg.showModal();
+  }
+
+  /* ---------- branding ---------- */
+  function branding(body) {
+    const b = state.agency.branding;
+    const form = h('form.card.form-grid',
+      h('h2', 'White-label portal'),
+      h('p.muted', 'Your clients see this name, logo and colors in the Command Deck and on the sign-in page.'),
+      field('Brand name', input('name', b.name, { placeholder: 'Acme Voice' })),
+      field('Logo URL (https)', input('logoUrl', b.logoUrl, { placeholder: 'https://…/logo.png' })),
+      h('div.row', field('Primary color', input('primary', b.primary, { type: 'color' })), field('Accent color', input('accent', b.accent, { type: 'color' }))),
+      h('label.row', h('input', { type: 'checkbox', name: 'hidePoweredBy', checked: !!b.hidePoweredBy }), ' Hide footer links'),
+      field('Custom domain', input('domain', b.domain, { placeholder: 'calls.youragency.com' }), 'Create a CNAME record pointing to ' + state.agency.appHost + ', save, then verify.'),
+      h('div.row', h('button.btn.primary', { type: 'submit' }, 'Save branding'),
+        b.domain ? h('button.btn', { type: 'button', on: { click: verify } }, state.agency.domainVerified ? 'Re-check domain' : 'Verify domain') : null,
+        b.domain ? h('span.badge.' + (state.agency.domainVerified ? 'live' : 'pending'), state.agency.domainVerified ? 'verified' : 'not verified') : null));
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try { await busy(form.querySelector('[type=submit]'), () => api('PUT', '/api/agency/branding', formData(form))); toast('Saved', 'ok'); await load(); } catch (err) { toast(err.message, 'err'); }
+    });
+    async function verify(e) {
+      try { const r = await busy(e.target, () => api('POST', '/api/agency/domain/verify', {})); toast(r.message, r.verified ? 'ok' : 'err'); await load(); } catch (err) { toast(err.message, 'err'); }
+    }
+    body.append(form);
+  }
+
+  /* ---------- team ---------- */
+  async function team(body) {
+    const [u, d] = await Promise.all([api('GET', '/api/users'), api('GET', '/api/deployments')]);
+    const live = d.deployments.filter((x) => x.status === 'live' || x.status === 'failed');
+    const names = Object.fromEntries(d.deployments.map((x) => [x.locationId, x.name]));
+    const table = h('table.table', h('thead', h('tr', h('th', 'User'), h('th', 'Access'), h('th', 'Last sign-in'), h('th', ''))),
+      h('tbody', u.users.map((x) => h('tr',
+        h('td', h('strong', x.name || x.email), h('div.muted.small', x.email)),
+        h('td', x.kind === 'client' ? 'Client ' + x.role + ': ' + (x.locationIds || []).map((id) => names[id] || id).join(', ') : 'Agency ' + x.role, x.disabled ? h('span.badge.failed', 'disabled') : null),
+        h('td', fmtTime(x.lastLoginAt) || '—'),
+        h('td.right', x.role === 'owner' ? null : [
+          h('button.btn.small', { on: { click: async () => { await api('PATCH', '/api/users/' + x.id, { disabled: !x.disabled }); team(clear(body)); } } }, x.disabled ? 'Enable' : 'Disable'), ' ',
+          h('button.btn.small.danger', { on: { click: async () => { if (confirm('Delete ' + x.email + '?')) { await api('DELETE', '/api/users/' + x.id); team(clear(body)); } } } }, 'Delete')
+        ])))));
+    const kindSel = select('kind', [['client', 'Client (one business)'], ['agency', 'Agency staff']], 'client');
+    const roleSel = select('role', [['viewer', 'Viewer (read only)'], ['manager', 'Manager (whisper, takeover)'], ['admin', 'Admin (agency only)']], 'manager');
+    const locSel = h('select', { name: 'locationIds', multiple: true, size: Math.min(6, Math.max(2, live.length)) }, live.map((x) => h('option', { value: x.locationId }, x.name)));
+    const locField = field('Sub-accounts', locSel);
+    kindSel.addEventListener('change', () => { locField.hidden = kindSel.value !== 'client'; });
+    const form = h('form.card.form-grid', h('h2', 'Add a login'),
+      h('div.row', field('Name', input('name', '')), field('Email', input('email', '', { type: 'email', required: true }))),
+      h('div.row', field('Type', kindSel), field('Role', roleSel)), locField,
+      field('Password', input('password', '', { type: 'text', placeholder: 'Leave blank to generate one', autocomplete: 'off' })),
+      h('button.btn.primary', { type: 'submit' }, 'Create login'), h('div.created'));
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const data = formData(form);
+      data.locationIds = [...locSel.selectedOptions].map((o) => o.value);
+      try {
+        const r = await busy(form.querySelector('[type=submit]'), () => api('POST', '/api/users', data));
+        const out = form.querySelector('.created');
+        out.innerHTML = '';
+        out.append(h('div.note.ok', 'Login created. Send these details securely: ', h('br'), 'Sign in: ', h('code', r.loginUrl), h('br'), 'Email: ', h('code', r.user.email), r.password ? [h('br'), 'Password: ', h('code', r.password)] : null));
+        const fresh = await api('GET', '/api/users');
+        table.querySelector('tbody').replaceWith(h('tbody', fresh.users.map((x) => h('tr', h('td', x.email), h('td', x.kind + ' ' + x.role), h('td', '—'), h('td')))));
+      } catch (err) { toast(err.message, 'err'); }
+    });
+    body.append(h('div.card', h('h2', 'Team and client logins'), table), form,
+      h('p.muted.small', 'Inside HighLevel, users are signed in automatically from the sidebar: agency admins get this console, and anyone opening the app inside a sub-account sees only that client\'s deck.'));
+  }
+  const clear = (n) => { n.innerHTML = ''; return n; };
+
+  /* ---------- activity ---------- */
+  async function activity(body) {
+    const r = await api('GET', '/api/events');
+    body.append(h('div.card', h('h2', 'Activity'), h('table.table', h('tbody', r.events.map((e) => h('tr', h('td.nowrap', fmtTime(e.at)), h('td', h('code', e.type)), h('td', e.detail)))))));
+  }
+
+  load().catch((e) => { root.innerHTML = ''; root.append(h('p.error', e.message)); });
+})();
