@@ -90,6 +90,12 @@ module.exports = function (app, ctx) {
     if (b.appId && cfg.ghl.clientId && !cfg.ghl.clientId.startsWith(b.appId)) return res.json({ ignored: true });
     // Sub-account level events: track which sub-accounts have the app; the agency license is unchanged.
     if (b.locationId && b.installType !== 'Company') {
+      const ws = await store.get('agencies', 'acct_' + b.locationId);
+      if (ws && b.type === 'UNINSTALL') {
+        // Without signature keys, confirm by checking the account's own token.
+        const stillValid = verified === null && await ctx.agencySvc.agencyToken(ws).then(() => true, () => false);
+        if (!stillValid) await store.patch('agencies', ws._id, { installed: false, uninstalledAt: new Date().toISOString() });
+      }
       await store.put('locationInstalls', { _id: b.locationId, companyId, installed: b.type === 'INSTALL', installedAt: new Date().toISOString() });
       await store.log(companyId, b.type === 'INSTALL' ? 'app.location_installed' : 'app.location_uninstalled', b.locationId, { locationId: b.locationId });
       return res.json({ ok: true });

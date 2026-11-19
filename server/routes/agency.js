@@ -43,7 +43,7 @@ module.exports = function (app, ctx) {
   app.get('/api/agency', ...admin, h(async (req, res) => {
     const a = req.agency;
     res.json({
-      id: a._id, name: a.name, status: a.status,
+      id: a._id, name: a.name, status: a.status, mode: a.mode === 'account' ? 'account' : 'company', locationId: a.locationId || '',
       keys: agencySvc.publicKeys(a),
       setup: { takeoverNumber: (a.setup && a.setup.takeoverNumber) || '', browserCalling: !!(a.setup && a.setup.twimlAppSid), vapiCredential: !!(a.setup && a.setup.vapiCredentialId) },
       branding: Object.assign({}, branding.normalizeBranding({}, a.branding || {}), { domain: (a.branding && a.branding.domain) || '' }),
@@ -87,6 +87,14 @@ module.exports = function (app, ctx) {
 
   /* ---------- sub-accounts ---------- */
   app.get('/api/locations', ...admin, h(async (req, res) => {
+    // Single-account workspace: the only account it manages is itself.
+    if (req.agency.mode === 'account') {
+      const id = req.agency.locationId;
+      let loc = {};
+      try { loc = await (await agencySvc.locationApi(req.agency, id)).getLocation(id); } catch (e) { /* name only */ }
+      const d = await store.get('deployments', id);
+      return res.json({ installCheck: true, single: true, locations: [{ id, name: loc.name || req.agency.name, city: loc.city || '', state: loc.state || '', timezone: loc.timezone || '', status: d ? d.status : 'none', phoneNumber: d && d.twilio ? d.twilio.phoneNumber || '' : '', appInstalled: true }] });
+    }
     const api = await agencySvc.agencyApi(req.agency);
     const locs = [];
     for (let skip = 0; skip < 2000; skip += 100) {

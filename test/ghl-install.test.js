@@ -14,24 +14,70 @@ async function installed(t) {
   return Object.assign(env, { owner: c });
 }
 
-test('sub-account install token is accepted and tracked', async (t) => {
+test('single account installs the app for itself: own workspace, console and call center', async (t) => {
+  const env = await setup();
+  t.after(() => env.server.close());
+  const { ctx, fakes, base } = env;
+  const c = client(base);
+  fakes.state.ghl.nextInstall = 'Location';
+
+  // No company runs the app: the account gets its own workspace and owner login.
+  let r = await c.req('GET', '/oauth/callback?code=xyz');
+  assert.match(r.location, /^\/app\/setup\?t=/);
+  const ws = await ctx.store.get('agencies', 'acct_loc2bbbbbbbb');
+  assert.equal(ws.mode, 'account');
+  assert.equal(ws.locationId, 'loc2bbbbbbbb');
+  assert.equal(ws.ghlCompanyId, 'comp1');
+  assert.equal(await ctx.store.get('agencies', 'comp1'), null, 'no company workspace created');
+  r = await c.req('POST', '/api/auth/setup', { t: decodeURIComponent(r.location.split('t=')[1]), email: 'owner@biz.com', password: 'longpassword1' });
+  assert.equal(r.json.redirect, '/app');
+
+  // Its console lists only itself, and it can deploy only itself.
+  r = await c.req('GET', '/api/locations');
+  assert.deepEqual(r.json.locations.map((l) => l.id), ['loc2bbbbbbbb']);
+  await c.req('PUT', '/api/agency/keys', { twilioSid: 'ACmain', twilioToken: 'goodtoken', vapiKey: 'vapi-good', openaiKey: 'sk-good' });
+  r = await c.req('PUT', '/api/deployments/loc1aaaaaaaa', { name: 'Not mine', agent: { businessName: 'X' } });
+  assert.equal(r.status, 403);
+  r = await c.req('GET', '/api/locations/loc1aaaaaaaa/crm');
+  assert.equal(r.status, 403);
+  r = await c.req('PUT', '/api/deployments/loc2bbbbbbbb', { name: 'Other Co', agent: { businessName: 'Other Co' } });
+  assert.equal(r.status, 200, r.text);
+  r = await c.req('POST', '/api/deployments/loc2bbbbbbbb/deploy', {});
+  assert.equal(r.status, 200, r.text);
+  assert.equal(r.json.deployment.status, 'live');
+  assert.equal((await ctx.store.get('deployments', 'loc2bbbbbbbb')).companyId, 'acct_loc2bbbbbbbb');
+
+  // Its token refreshes as a Location token.
+  await ctx.store.patch('agencies', 'acct_loc2bbbbbbbb', { 'ghl.expiresAt': Date.now() - 1000 });
+  await ctx.agencySvc.agencyToken(await ctx.store.get('agencies', 'acct_loc2bbbbbbbb'));
+  const refresh = fakes.log.filter((x) => x.path === '/oauth/token' && x.body.grant_type === 'refresh_token').pop();
+  assert.equal(refresh.body.user_type, 'Location');
+
+  // Inside the CRM: the account's admin gets the console, other users the deck.
+  const sso = async (u) => (await client(base).req('POST', '/api/auth/sso', { payload: encryptGhlSso(u, 'sso-key') })).json;
+  assert.equal((await sso({ userId: 'a1', companyId: 'comp1', type: 'location', role: 'admin', activeLocation: 'loc2bbbbbbbb' })).redirect, '/app');
+  assert.equal((await sso({ userId: 'a2', companyId: 'comp1', type: 'location', role: 'user', activeLocation: 'loc2bbbbbbbb' })).redirect, '/deck');
+  // Another account of the same company that did not install: not available.
+  assert.match((await sso({ userId: 'a3', companyId: 'comp1', type: 'location', activeLocation: 'loc1aaaaaaaa' })).error, /not installed for your account/);
+
+  // Uninstalling from the account (verified by its revoked token) disables the workspace.
+  fakes.state.ghl.usedRefresh.add('loc-rt');
+  await ctx.store.patch('agencies', 'acct_loc2bbbbbbbb', { 'ghl.expiresAt': Date.now() - 1000, 'ghl.refreshToken': ctx.sec.encrypt('loc-rt') });
+  await fetch(base + '/webhooks/crm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'UNINSTALL', appId: 'app1', companyId: 'comp1', locationId: 'loc2bbbbbbbb', installType: 'Location' }) });
+  assert.equal((await ctx.store.get('agencies', 'acct_loc2bbbbbbbb')).installed, false);
+});
+
+test('company bulk install manages its accounts; a later account install is just recorded', async (t) => {
   const env = await setup();
   t.after(() => env.server.close());
   const c = client(env.base);
-  env.fakes.state.ghl.nextInstall = 'Location';
-  // Before the agency installs: explain the missing step instead of failing.
-  let r = await c.req('GET', '/oauth/callback?code=xyz');
-  assert.equal(r.status, 200);
-  assert.match(r.text, /account manager still needs to activate it/);
-  assert.equal((await env.ctx.store.get('locationInstalls', 'loc2bbbbbbbb')).installed, true);
-
-  env.fakes.state.ghl.nextInstall = 'Company';
-  r = await c.req('GET', '/oauth/callback?code=abc');
+  let r = await c.req('GET', '/oauth/callback?code=abc'); // company-level (bulk) install
   assert.match(r.location, /^\/app\/setup/);
   env.fakes.state.ghl.nextInstall = 'Location';
   r = await c.req('GET', '/oauth/callback?code=xyz');
   assert.match(r.text, /<h1>Installed<\/h1>/);
-  assert.equal((await env.ctx.store.get('agencies', 'comp1')).ghl.installerUserId, 'user1', 'agency token untouched by a location install');
+  assert.equal(await env.ctx.store.get('agencies', 'acct_loc2bbbbbbbb'), null, 'no separate workspace when the company runs the app');
+  assert.equal((await env.ctx.store.get('locationInstalls', 'loc2bbbbbbbb')).installed, true);
 });
 
 test('location install webhooks and installed-location check', async (t) => {

@@ -119,6 +119,7 @@ function createProvisioner(ctx) {
     const locationId = String(input.locationId || '').trim();
     if (!/^[A-Za-z0-9]{8,40}$/.test(locationId)) throw Object.assign(new Error('Pick an account'), { status: 400 });
     const existing = await store.get('deployments', locationId);
+    if (agency.mode === 'account' && locationId !== agency.locationId) throw Object.assign(new Error('This workspace can only set up its own account'), { status: 403 });
     if (existing && existing.companyId !== agency._id) throw Object.assign(new Error('That account belongs to another company'), { status: 403 });
     const dep = existing || {
       _id: locationId,

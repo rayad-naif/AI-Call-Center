@@ -90,7 +90,7 @@ HighLevel's API cannot create pipelines, so put a voice pipeline in your snapsho
 
 Do this in the HighLevel Marketplace developer portal, in your app's settings. After deploying, **Super Admin → HighLevel app setup** shows every URL to paste, flags missing settings, and has a **Test Client ID / Secret** button that checks the pair with HighLevel.
 
-1. **Basic info:** Target User **Agency**. Distribution: **Agency and Sub-account**, so the sidebar page appears in both.
+1. **Basic info:** Target User **Sub-account**. Distribution: **Agency and Sub-account**, so an agency can install it for its sub-accounts (one, several or all) and a sub-account can also install it for itself.
 2. **Auth → Scopes:** add every scope below (the default `GHL_SCOPES`):
    `companies.readonly locations.readonly oauth.readonly oauth.write contacts.readonly contacts.write opportunities.readonly opportunities.write calendars.readonly calendars/events.readonly calendars/events.write locations/customFields.readonly locations/customFields.write users.readonly conversations.readonly conversations/message.write`
 3. **Auth → Redirect URL:** `${BASE_URL}/oauth/callback`
@@ -105,8 +105,16 @@ Do this in the HighLevel Marketplace developer portal, in your app's settings. A
 
 ### How installs work
 
-- **Agency install** (an Agency-level token): creates the agency license and sends the installer to create the owner login. This is the install that's required.
-- **Sub-account installs** (Location-level tokens, or INSTALL/UNINSTALL webhooks with a `locationId`): recorded per sub-account. HighLevel only issues the location tokens that deployment needs for sub-accounts where the app is installed. The Clients list therefore shows "App not installed in this sub-account yet" where needed, from HighLevel's installed-locations API. Deploying there anyway returns that same clear message instead of an API error.
+The app is a sub-account app that an agency can install for its sub-accounts. Both ways of installing work:
+
+- **The agency installs it for its sub-accounts** (HighLevel's bulk install returns an Agency-level token). This creates a **company workspace**: the installer creates the owner login, and the company console lists the agency's sub-accounts so it can set up a call center for each one. Location tokens are minted per sub-account, and HighLevel only issues them where the app is installed. The list therefore shows "App not installed in this account yet" where needed, using HighLevel's installed-locations API. Inside a deployed sub-account, users see only that account's deck.
+- **A sub-account installs it for itself** (a Location-level token). If its agency already runs the app, the install is just recorded and the agency manages that account. Otherwise the sub-account gets its own **single-account workspace**:
+  - its own owner login, keys, call center, team, branding and reports;
+  - it can only manage itself;
+  - its token refreshes as a Location token;
+  - inside the CRM, that sub-account's admins get the console and other users get the deck.
+- **Installs and uninstalls are tracked per sub-account** (INSTALL/UNINSTALL webhooks with a `locationId`). Uninstalling from a single-account workspace disables it. Without webhook signature keys, the uninstall is first confirmed by checking that the account's token was revoked.
+- **Super Admin** shows each workspace as *Company* or *Single account*.
 - **Token refresh:** HighLevel refresh tokens are single-use. When two requests refresh at once, the second reuses the token the first saved. A revoked token shows "Reinstall the app" instead of failing silently.
 - **Iframe sign-in:** session cookies are `SameSite=None; Secure; Partitioned`, so `BASE_URL` must be HTTPS. Pages are never blocked from framing, because white-label CRM domains vary.
 

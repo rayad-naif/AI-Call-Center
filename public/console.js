@@ -29,9 +29,11 @@
     render();
   }
 
+  // A single account that installed the app for itself manages only itself.
+  const single = () => state.agency && state.agency.mode === 'account';
   function render() {
     root.innerHTML = '';
-    const nav = h('nav.tabs', TABS.map(([k, l]) => h('a', { href: '#' + k, class: state.tab === k ? 'active' : '' }, l)));
+    const nav = h('nav.tabs', TABS.map(([k, l]) => [k, k === 'clients' && single() ? 'Call center' : l]).map(([k, l]) => h('a', { href: '#' + k, class: state.tab === k ? 'active' : '' }, l)));
     const body = h('section.tab-body');
     root.append(h('div.console-head', h('div', h('h1', state.agency.name), h('p.muted', 'License: ', badge(state.agency.status))), h('div.row', h('a.btn', { href: '/report' }, 'ROI report'), h('a.btn.primary', { href: '/deck' }, 'Open Command Deck'))), nav, body);
     ({ overview, keys, clients, branding, team, activity })[state.tab](body);
@@ -44,7 +46,7 @@
     const ready = k.twilioSid.set && k.twilioToken.set && k.vapiKey.set && k.openaiKey.set;
     const steps = [
       ['Add your provider keys', ready, '#keys'],
-      ['Deploy your first client', false, '#clients'],
+      [single() ? 'Set up your call center' : 'Deploy your first client', false, '#clients'],
       ['Brand the client portal', !!state.agency.branding.name || !!state.agency.branding.logoUrl, '#branding'],
       ['Invite your team or clients', false, '#team']
     ];
@@ -57,7 +59,7 @@
     if (deps.deployments.some((d) => d.status === 'live')) body.querySelectorAll('.checklist li')[1].classList.add('done');
     statsBox.innerHTML = '';
     statsBox.append(
-      stat('Live clients', deps.deployments.filter((d) => d.status === 'live').length),
+      single() ? null : stat('Live clients', deps.deployments.filter((d) => d.status === 'live').length),
       stat('Calls', s.calls7d), stat('Minutes', s.minutes7d), stat('Booked', s.booked7d),
       stat('Avg QA score', s.avgScore == null ? '—' : s.avgScore), stat('Vapi cost', '$' + s.cost7d.toFixed(2))
     );
@@ -102,6 +104,7 @@
 
   /* ---------- clients ---------- */
   async function clients(body) {
+    if (single()) return editor(body, state.agency.locationId);
     const sub = location.hash.split('/')[1];
     if (sub) return editor(body, decodeURIComponent(sub));
     const list = h('div.card', h('div.spinner'));
@@ -129,7 +132,7 @@
   }
 
   async function editor(body, locationId) {
-    body.append(h('p', h('a', { href: '#clients' }, '← All clients')));
+    if (!single()) body.append(h('p', h('a', { href: '#clients' }, '← All clients')));
     const box = h('div', h('div.spinner'));
     body.append(box);
     const [crm, existing] = await Promise.all([

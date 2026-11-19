@@ -5,6 +5,9 @@ const { h, csrf } = require('./util');
 const { randomToken, hashPassword, verifyPassword, decryptGhlSso } = require('../security');
 const views = require('../views/pages');
 
+// Workspace id for an account that installed the app on its own.
+const accountWorkspaceId = (locationId) => 'acct_' + locationId;
+
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{2,}$/;
 
 module.exports = function (app, ctx) {
@@ -21,17 +24,35 @@ module.exports = function (app, ctx) {
     if (!code) return res.status(400).type('html').send(views.message(req, 'Install cancelled', 'The CRM did not send an authorization code.'));
     const t = await ghl.exchangeCode(code);
 
-    // Sub-account install: remember it; the agency deploys from its console.
+    /* Single-account install (userType "Location"). Two cases:
+       - the account's company already runs the app for its accounts (bulk
+         install): just record it, the company manages this account;
+       - otherwise the account gets its own workspace ("account mode"): its
+         own login, keys, call center and portal, managing only itself. */
     if (t.userType === 'Location') {
       await store.put('locationInstalls', { _id: t.locationId, companyId: t.companyId, installed: true, installedAt: new Date().toISOString() });
       await store.log(t.companyId, 'app.location_installed', t.locationId, { locationId: t.locationId });
       const ag = await store.get('agencies', t.companyId);
-      if (!ag || !ag.installed) {
-        return res.type('html').send(views.message(req, 'Almost there', 'The app was added to your account. Your account manager still needs to activate it and set up your AI call center. Contact them to finish.'));
+      const managed = await store.get('deployments', t.locationId);
+      if (ag && ag.installed && (!managed || managed.companyId === ag._id)) {
+        return res.type('html').send(views.message(req, 'Installed',
+          managed && managed.status === 'live' ? 'Your AI call center is live. Open it from the left menu.' : 'The app is ready for this account. Your administrator can now set up the AI call center; once it is live, open it from the left menu.'));
       }
-      const dep = await store.get('deployments', t.locationId);
-      return res.type('html').send(views.message(req, 'Installed',
-        dep && dep.status === 'live' ? 'Your AI call center is live. Open it from the left menu.' : 'Your account manager can now set up your AI call center. Once it is live, open it from the left menu.'));
+      const wid = accountWorkspaceId(t.locationId);
+      let loc = {};
+      try { loc = await ghl.api(t.access_token).getLocation(t.locationId); } catch (e) { /* name is optional */ }
+      const prev = await store.get('agencies', wid);
+      const ws = Object.assign(prev || { _id: wid, createdAt: new Date().toISOString(), status: cfg.newInstallStatus, keys: {}, setup: {}, branding: {} }, {
+        mode: 'account', locationId: t.locationId, ghlCompanyId: t.companyId,
+        name: loc.name || (prev && prev.name) || 'Account ' + t.locationId.slice(-6),
+        installed: true, installedAt: (prev && prev.installedAt) || new Date().toISOString(),
+        ghl: { accessToken: sec.encrypt(t.access_token), refreshToken: sec.encrypt(t.refresh_token), expiresAt: Date.now() + (Number(t.expires_in) || 86399) * 1000, scope: t.scope || '', installerUserId: t.userId || '' }
+      });
+      await store.put('agencies', ws);
+      await store.log(wid, prev ? 'app.reinstalled' : 'app.installed', ws.name + ' (single account)', { locationId: t.locationId });
+      const owner = (await store.find('users', { companyId: wid, role: 'owner' }, { limit: 1 }))[0];
+      if (!owner) return res.redirect('/app/setup?t=' + encodeURIComponent(sec.sign({ setup: wid, exp: Date.now() + 30 * 60e3 })));
+      return res.redirect('/login?installed=1');
     }
 
     let company = {};
@@ -122,26 +143,39 @@ module.exports = function (app, ctx) {
     if (!ctx.limits.login('sso:' + req.ip)) return res.status(429).json({ error: 'Too many attempts' });
     const u = decryptGhlSso(req.body.payload, cfg.ghl.ssoKey);
     if (!u || !u.userId || !u.companyId) return res.status(401).json({ error: 'Sign-in failed. Reload the page.' });
-    const agency = await store.get('agencies', u.companyId);
-    if (!agency || !agency.installed) return res.status(403).json({ error: u.activeLocation || u.locationId ? 'This service is not available on your account yet. Contact your account manager.' : 'This app is not installed for your company yet.', install: u.activeLocation || u.locationId ? undefined : '/install' });
-    if (agency.status === 'suspended') return res.status(403).json({ error: 'This service is paused. Contact your account manager.' });
-
     // Field names differ slightly between HighLevel versions; accept both.
     const locationId = u.activeLocation || u.locationId || '';
-    const base = { uid: 'ghl:' + u.userId, companyId: u.companyId, name: u.userName || u.name || '', email: (u.email || '').toLowerCase() };
+    const base = { uid: 'ghl:' + u.userId, name: u.userName || u.name || '', email: (u.email || '').toLowerCase() };
+    const agency = await store.get('agencies', u.companyId);
+    const companyRuns = agency && agency.installed;
+
     if (locationId) {
-      // Inside a sub-account: the client view of that location only.
       const dep = await store.get('deployments', locationId);
-      if (!dep || dep.companyId !== u.companyId || dep.status === 'removed') {
+      const managedByCompany = companyRuns && dep && dep.companyId === agency._id && dep.status !== 'removed';
+      // Account that installed the app for itself: its admins get the console.
+      const ws = !managedByCompany && await store.get('agencies', accountWorkspaceId(locationId));
+      if (ws && ws.installed) {
+        if (ws.status === 'suspended') return res.status(403).json({ error: 'This service is paused.' });
+        const role = u.role === 'admin' || u.type === 'agency' ? 'admin' : 'viewer';
+        auth.setSession(res, Object.assign(base, { companyId: ws._id, kind: 'agency', role }));
+        return res.json({ ok: true, redirect: role === 'admin' ? '/app' : '/deck' });
+      }
+      if (!companyRuns) return res.status(403).json({ error: 'This app is not installed for your account yet. Install it from the Marketplace.' });
+      if (agency.status === 'suspended') return res.status(403).json({ error: 'This service is paused. Contact your account manager.' });
+      // Account managed by its company: the client view of that account only.
+      if (!managedByCompany) {
         return res.status(404).json({ error: 'Your AI call center is not set up yet. Contact your account manager to turn it on.' });
       }
+      base.companyId = u.companyId;
       const role = u.type === 'agency' || u.role === 'admin' ? 'manager' : 'viewer';
       auth.setSession(res, Object.assign(base, { kind: 'client', role, locationIds: [locationId], locationId }));
       return res.json({ ok: true, redirect: '/deck' });
     }
+    if (!companyRuns) return res.status(403).json({ error: 'This app is not installed for your company yet.', install: '/install' });
+    if (agency.status === 'suspended') return res.status(403).json({ error: 'This license is paused.' });
     if (u.type && u.type !== 'agency') return res.status(403).json({ error: 'Open this page from an account.' });
     const role = u.role === 'admin' || u.isAgencyOwner ? 'admin' : 'manager';
-    auth.setSession(res, Object.assign(base, { kind: 'agency', role }));
+    auth.setSession(res, Object.assign(base, { companyId: u.companyId, kind: 'agency', role }));
     res.json({ ok: true, redirect: role === 'admin' ? '/app' : '/deck' });
   }));
 };

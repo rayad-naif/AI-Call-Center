@@ -48,7 +48,7 @@ function createAgencyService(ctx) {
     if (!refreshToken) throw new Error('The CRM is not connected for this company. Reinstall the app.');
     let r;
     try {
-      r = await ghl.refresh(refreshToken);
+      r = await ghl.refresh(refreshToken, agency.mode === 'account' ? 'Location' : 'Company');
     } catch (e) {
       // HighLevel refresh tokens are single-use. If a parallel request (another
       // serverless instance) refreshed first, use the token it saved.
@@ -79,6 +79,11 @@ function createAgencyService(ctx) {
   // Location token, cached on the deployment (falls back to a per-process cache).
   const memo = new Map();
   async function locationApi(agency, locationId) {
+    // Single-account workspace: its own install token is already a location token.
+    if (agency.mode === 'account') {
+      if (locationId !== agency.locationId) throw Object.assign(new Error('This workspace can only manage its own account.'), { status: 403 });
+      return ghl.api(await agencyToken(agency));
+    }
     const dep = await store.get('deployments', locationId);
     const cached = dep && dep.ghlToken;
     let token = cached && cached.expiresAt > Date.now() + 120e3 ? sec.decrypt(cached.accessToken) : '';

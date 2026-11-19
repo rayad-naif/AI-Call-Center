@@ -26,7 +26,7 @@ module.exports = function (app, ctx) {
     deps.forEach((d) => { if (d.status === 'live') count[d.companyId] = (count[d.companyId] || 0) + 1; });
     res.json({
       agencies: agencies.map((a) => ({
-        id: a._id, name: a.name, status: a.status, installed: !!a.installed, installedAt: a.installedAt,
+        id: a._id, name: a.name, mode: a.mode === 'account' ? 'account' : 'company', status: a.status, installed: !!a.installed, installedAt: a.installedAt,
         live: count[a._id] || 0, keys: Object.keys(a.keyStatus || {}).filter((k) => a.keyStatus[k].ok),
         domain: (a.branding && a.branding.domain) || ''
       }))

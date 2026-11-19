@@ -34,7 +34,8 @@ function createGhl(cfg, fetchImpl) {
     }
     return t;
   }
-  const refresh = (refreshToken) => tokenRequest({ grant_type: 'refresh_token', refresh_token: refreshToken });
+  // userType: 'Company' (company / bulk install) or 'Location' (single account install).
+  const refresh = (refreshToken, userType) => tokenRequest({ grant_type: 'refresh_token', refresh_token: refreshToken, user_type: userType || 'Company' });
 
   // Location token from an agency token (needs oauth.write).
   const locationToken = (agencyToken, companyId, locationId) => http(g.apiBase + '/oauth/locationToken', {

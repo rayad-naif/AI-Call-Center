@@ -104,7 +104,7 @@ function docs(req, cfg) {
     title: 'Documentation', marketing: true, nav: '<a href="/login">Sign in</a>',
     body: '<article class="prose"><h1>Documentation</h1>' +
       '<h2>Getting started</h2><ol>' +
-      step('Install', 'Install the app from the CRM Marketplace as a company admin, then create your owner login.') +
+      step('Install', 'Install the app from the CRM Marketplace. A company can install it for its accounts (one, several or all) and manage them from one console, or a single account can install it for itself. Then create your owner login.') +
       step('Add your keys', 'In <em>Keys</em>, paste your Twilio Account SID and Auth Token, Vapi private key and OpenAI key. Each is checked live and stored encrypted.') +
       step('Deploy a client', 'In <em>Clients</em>, pick an account, describe the business (services, hours, FAQ, pricing), choose a booking calendar and map call outcomes to pipeline stages, then click <em>Deploy</em>.') +
       step('Go live', 'The client gets a local number answered by the AI switchboard. Forward their existing line to it, or publish it.') +

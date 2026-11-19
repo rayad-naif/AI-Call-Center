@@ -10,7 +10,7 @@
     const rows = r.agencies.map((a) => {
       const sel = h('select', { on: { change: async () => { try { await api('POST', '/api/admin/agencies/' + a.id + '/status', { status: sel.value }); toast('Updated', 'ok'); } catch (e) { toast(e.message, 'err'); } } } },
         ['active', 'pending', 'suspended'].map((s) => h('option', { value: s, selected: s === a.status }, s)));
-      return h('tr', h('td', h('strong', a.name), h('div.muted.small', a.id)), h('td', a.installed ? 'Installed' : 'Uninstalled'),
+      return h('tr', h('td', h('strong', a.name), h('div.muted.small', (a.mode === 'account' ? 'Single account · ' : 'Company · ') + a.id)), h('td', a.installed ? 'Installed' : 'Uninstalled'),
         h('td', fmtTime(a.installedAt)), h('td', String(a.live)), h('td', a.keys.join(', ') || '—'), h('td', a.domain || '—'), h('td', sel));
     });
     const s = await api('GET', '/api/admin/setup');
