@@ -181,3 +181,25 @@ test('helpers', () => {
   assert.equal(a.minScore, 100);
   assert.equal(agents.normalizeAgent({ language: 'klingon' }).language, 'en');
 });
+
+test('one sweep clears queued leads across agencies and sub-accounts in batches', async (t) => {
+  const env = await deployed(t);
+  const { ctx, fakes } = env;
+  // A second sub-account (another client of the same agency) and a second agency.
+  const base = await ctx.store.get('deployments', 'loc1aaaaaaaa');
+  await ctx.store.put('deployments', Object.assign({}, base, { _id: 'loc2bbbbbbbb', name: 'Other Co' }));
+  await ctx.store.put('agencies', Object.assign({}, await ctx.store.get('agencies', 'comp1'), { _id: 'comp2' }));
+  await ctx.store.put('deployments', Object.assign({}, base, { _id: 'loc3cccccccc', companyId: 'comp2', name: 'Agency 2 client' }));
+  const past = new Date(Date.now() - 60e3).toISOString();
+  const locs = [['comp1', 'loc1aaaaaaaa'], ['comp1', 'loc2bbbbbbbb'], ['comp2', 'loc3cccccccc']];
+  for (let i = 0; i < 60; i++) {
+    const [companyId, locationId] = locs[i % 3];
+    await ctx.store.put('leads', { _id: 'lead_b' + i, companyId, locationId, phone: '+1512555' + String(2000 + i), name: 'L' + i, status: 'queued', attempts: 0, callIds: [], createdAt: past, nextAt: past });
+  }
+  const r = await env.app.locals.sweep('test');
+  assert.equal(r.leads, 60, 'more than one batch of 25 in a single sweep');
+  assert.equal(fakes.state.vapi.calls.length, 60);
+  const perLoc = {};
+  fakes.state.vapi.calls.forEach((c) => { perLoc[c.metadata.locationId] = (perLoc[c.metadata.locationId] || 0) + 1; });
+  assert.deepEqual(perLoc, { loc1aaaaaaaa: 20, loc2bbbbbbbb: 20, loc3cccccccc: 20 });
+});

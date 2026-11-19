@@ -151,12 +151,16 @@ function createQaService(ctx) {
     }
   }
 
+  // Calls waiting for QA/CRM sync, across every agency and sub-account.
+  // A failed attempt waits 5 minutes before the next one, so the 5 tries are
+  // spread out instead of burned in one sweep.
   async function retryQueued(limit) {
-    const docs = await store.find('calls', { 'sync.state': 'queued', status: 'ended' }, { limit: limit || 25 });
+    const cutoff = Date.now() - 5 * 60e3;
+    const ready = (c) => !(c.sync && c.sync.at) || Date.parse(c.sync.at) < cutoff;
+    const docs = (await store.find('calls', { 'sync.state': 'queued', status: 'ended' }, { limit: (limit || 25) * 4 })).filter(ready).slice(0, limit || 25);
     // Also pick up runs that died mid-way (serverless timeouts).
     const stuck = await store.find('calls', { 'sync.state': 'running' }, { limit: 25 });
-    const cutoff = Date.now() - 5 * 60e3;
-    const all = docs.concat(stuck.filter((c) => Date.parse((c.sync && c.sync.at) || 0) < cutoff));
+    const all = docs.concat(stuck.filter(ready));
     for (const c of all) await processCall(c._id);
     return all.length;
   }

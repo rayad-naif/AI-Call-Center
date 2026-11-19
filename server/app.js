@@ -66,10 +66,15 @@ function createApp(cfg, deps) {
        2. the daily Vercel cron (vercel.json);
        3. an optional external pinger (GitHub Actions, cron-job.org) calling
           /api/cron/sweep with the CRON_SECRET, for exact timing overnight. */
+  // One sweep serves every agency and sub-account. It works in batches until
+  // the backlog is empty or ~40s have passed (the function limit is 60s), so a
+  // single daily cron can clear a whole night of leads across all clients.
   app.locals.sweep = async (source) => {
+    const deadline = Date.now() + (cfg.sweepBudgetMs || 40e3);
     const stale = await ctx.calls.sweepStale();
-    const synced = await ctx.qa.retryQueued(25);
-    const leads = await ctx.automation.processDueLeads(25);
+    let leads = 0, synced = 0, n;
+    do { n = await ctx.automation.processDueLeads(25); leads += n; } while (n === 25 && Date.now() < deadline);
+    do { n = await ctx.qa.retryQueued(25); synced += n; } while (n >= 25 && Date.now() < deadline);
     const result = { stale, synced, leads };
     await ctx.store.put('meta', { _id: 'sweep', lastAt: new Date().toISOString(), source: source || 'manual', result });
     return result;
