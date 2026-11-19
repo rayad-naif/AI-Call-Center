@@ -9,33 +9,47 @@ function createGhl(cfg, fetchImpl) {
   const g = cfg.ghl;
   const http = createHttp('CRM', fetchImpl);
 
-  function authorizeUrl(state) {
+  // Which Marketplace app (cfg.apps): 'standard' (sub-account) or 'agency'.
+  const appOf = (key) => (cfg.apps && cfg.apps[key]) || (cfg.apps && cfg.apps.standard) || { clientId: g.clientId, clientSecret: g.clientSecret, scopes: g.scopes, redirectUri: cfg.redirectUri };
+
+  function authorizeUrl(state, appKey) {
+    const a = appOf(appKey);
     const u = new URL(g.authUrl);
     u.searchParams.set('response_type', 'code');
-    u.searchParams.set('redirect_uri', cfg.redirectUri);
-    u.searchParams.set('client_id', g.clientId);
-    u.searchParams.set('scope', g.scopes);
+    u.searchParams.set('redirect_uri', a.redirectUri);
+    u.searchParams.set('client_id', a.clientId);
+    u.searchParams.set('scope', a.scopes);
     if (state) u.searchParams.set('state', state);
     return u.toString();
   }
 
-  const tokenRequest = (params) => http(g.apiBase + '/oauth/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
-    body: new URLSearchParams(Object.assign({ client_id: g.clientId, client_secret: g.clientSecret, user_type: 'Company' }, params)).toString()
-  });
+  const tokenRequest = (params, appKey) => {
+    const a = appOf(appKey);
+    return http(g.apiBase + '/oauth/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+      body: new URLSearchParams(Object.assign({ client_id: a.clientId, client_secret: a.clientSecret, user_type: 'Company' }, params)).toString()
+    });
+  };
 
   /* Returns the token as-is. userType is "Company" for an agency install and
      "Location" when the app is installed into a single sub-account. */
-  async function exchangeCode(code) {
-    const t = await tokenRequest({ grant_type: 'authorization_code', code, redirect_uri: cfg.redirectUri });
+  async function exchangeCode(code, appKey) {
+    const t = await tokenRequest({ grant_type: 'authorization_code', code, redirect_uri: appOf(appKey).redirectUri }, appKey);
     if (!t || !t.access_token || !t.companyId || !/^(Company|Location)$/.test(t.userType || '')) {
       throw new ApiError('CRM', 'Unexpected install token (' + ((t && t.userType) || 'unknown') + ').', 400, t);
     }
     return t;
   }
   // userType: 'Company' (company / bulk install) or 'Location' (single account install).
-  const refresh = (refreshToken, userType) => tokenRequest({ grant_type: 'refresh_token', refresh_token: refreshToken, user_type: userType || 'Company' });
+  const refresh = (refreshToken, userType, appKey) => tokenRequest({ grant_type: 'refresh_token', refresh_token: refreshToken, user_type: userType || 'Company' }, appKey);
+
+  // Which of our apps a webhook's appId belongs to (null = neither).
+  function appKeyForId(appId) {
+    if (!appId) return null;
+    const hit = Object.values(cfg.apps || {}).find((a) => a.clientId && (a.appId === appId || a.clientId.startsWith(appId)));
+    return hit ? hit.key : null;
+  }
 
   // Location token from an agency token (needs oauth.write).
   const locationToken = (agencyToken, companyId, locationId) => http(g.apiBase + '/oauth/locationToken', {
@@ -105,7 +119,7 @@ function createGhl(cfg, fetchImpl) {
     return false;
   }
 
-  return { authorizeUrl, exchangeCode, refresh, locationToken, api, verifyWebhook };
+  return { authorizeUrl, exchangeCode, refresh, locationToken, api, verifyWebhook, appKeyForId };
 }
 
 module.exports = { createGhl };

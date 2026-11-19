@@ -12,6 +12,7 @@ function setup(extraEnv) {
   const cfg = config.load(Object.assign({
     SESSION_SECRET: 's'.repeat(40), ENCRYPTION_KEY: 'e'.repeat(40), ADMIN_PASSWORD: 'admin-password-1',
     GHL_CLIENT_ID: 'app1-abc', GHL_CLIENT_SECRET: 'secret', GHL_SSO_KEY: 'sso-key', DATA_DIR: dir, CRON_SECRET: 'cron',
+    GHL_AGENCY_CLIENT_ID: 'app2-xyz', GHL_AGENCY_CLIENT_SECRET: 'secret2', GHL_AGENCY_SSO_KEY: 'sso-key-2',
     BASE_URL: 'http://127.0.0.1:0', SWEEP_INTERVAL_SEC: '0'
   }, process.env.TEST_MONGODB_URI ? { MONGODB_URI: process.env.TEST_MONGODB_URI, MONGODB_DB: 'acc_test_' + Date.now() + '_' + Math.floor(Math.random() * 1e6) } : {}, extraEnv || {}));
   const fakes = createFakes();
@@ -21,7 +22,7 @@ function setup(extraEnv) {
     const server = app.listen(0, '127.0.0.1', () => {
       const base = 'http://127.0.0.1:' + server.address().port;
       // BASE_URL must match the real port for Twilio signatures.
-      cfg.baseUrl = base; cfg.baseHost = new URL(base).host; cfg.redirectUri = base + '/oauth/callback';
+      cfg.baseUrl = base; cfg.baseHost = new URL(base).host; cfg.redirectUri = base + '/oauth/callback'; cfg.apps.standard.redirectUri = base + '/oauth/callback'; cfg.apps.agency.redirectUri = base + '/oauth/agency/callback';
       const close = server.close.bind(server);
       // Close the store too (MongoDB keeps the process alive otherwise).
       server.close = () => { close(); return app.locals.store.close(); };

@@ -121,7 +121,7 @@
         const tb = h('tbody');
         r.locations.filter((l) => !term || (l.name || '').toLowerCase().includes(term)).forEach((l) => tb.append(h('tr',
           h('td', h('strong', l.name), h('div.muted.small', [l.city, l.state].filter(Boolean).join(', '))),
-          h('td', badge(l.status), l.appInstalled === false ? h('div.small.warn', 'App not installed in this account yet') : null), h('td', l.phoneNumber || '—'),
+          h('td', badge(l.status), l.appInstalled === false ? h('div.small.warn', r.edition === 'agency' ? 'CRM not connected yet' : 'App not installed in this account yet') : null), h('td', l.phoneNumber || '—'),
           h('td.right', h('a.btn.small' + (l.status === 'none' ? '.primary' : ''), { href: '#clients/' + encodeURIComponent(l.id) }, l.status === 'none' ? 'Set up' : 'Manage')))));
         table.append(tb);
       };
@@ -129,6 +129,32 @@
       list.append(h('div.row-between', h('h2', 'Clients (' + r.locations.length + ' accounts)'), q), table);
       draw();
     } catch (err) { list.innerHTML = ''; list.append(h('p.error', err.message)); }
+  }
+
+  /* CRM connection: a Private Integration token from the client's account.
+     Required for companies on the company app; optional on the account app
+     (for an account where that app is not installed). */
+  const PIT_SCOPES = 'View/Edit Contacts, View/Edit Opportunities, View Calendars, View/Edit Calendar Events, View/Edit Custom Fields, View/Edit Conversations, View/Edit Conversation Messages, View Locations, View Users';
+  async function crmConnection(locationId, failing, reload) {
+    const st = await api('GET', '/api/locations/' + encodeURIComponent(locationId) + '/crm-token').catch(() => ({ connected: false, edition: state.agency.edition }));
+    const agencyEd = st.edition === 'agency';
+    if (!agencyEd && !st.connected && !failing) return h('span');
+    const tok = input('token', '', { type: 'password', placeholder: st.connected ? 'Connected. Paste a new token to replace it' : 'pit-…', autocomplete: 'off' });
+    const save = h('button.btn.primary', { type: 'button' }, st.connected ? 'Replace token' : 'Connect');
+    const remove = st.connected ? h('button.btn', { type: 'button' }, 'Disconnect') : null;
+    save.addEventListener('click', async () => {
+      try { const r = await busy(save, () => api('PUT', '/api/locations/' + encodeURIComponent(locationId) + '/crm-token', { token: tok.value })); toast('Connected' + (r.name ? ' to ' + r.name : ''), 'ok'); reload(); } catch (err) { toast(err.message, 'err'); }
+    });
+    if (remove) remove.addEventListener('click', async () => {
+      if (!confirm('Disconnect this account from the CRM? Calls keep working, but CRM sync, booking and texts stop until you connect again.')) return;
+      try { await api('DELETE', '/api/locations/' + encodeURIComponent(locationId) + '/crm-token'); toast('Disconnected', 'ok'); reload(); } catch (err) { toast(err.message, 'err'); }
+    });
+    return h('div.card' + (st.connected ? '' : '.needs-connect'),
+      h('h2', 'CRM connection ', h('span.badge.' + (st.connected ? 'live' : 'pending'), st.connected ? 'connected' : 'not connected')),
+      h('p.muted.small', agencyEd
+        ? 'Each client account connects with its own Private Integration token. In the client\'s account open Settings > Private Integrations, create an integration with these scopes, and paste the token here: '
+        : 'The app is not installed in this account. You can connect it with a Private Integration token from the account instead (Settings > Private Integrations) with these scopes: ', h('strong', PIT_SCOPES), '.'),
+      h('div.row', tok, save, remove));
   }
 
   async function editor(body, locationId) {
@@ -144,6 +170,7 @@
     const opt = (dep && dep.options) || { country: 'US', areaCode: '', useSubaccount: true };
     const pipe = (dep && dep.pipeline) || { pipelineId: '', stages: {} };
     box.innerHTML = '';
+    if (!single()) box.append(await crmConnection(locationId, !!crm.error, () => { body.innerHTML = ''; editor(body, locationId); }));
     if (crm.error) box.append(h('p.note.err', 'Could not read this account from the CRM: ' + crm.error));
 
     const form = h('form.form-grid');

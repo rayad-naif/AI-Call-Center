@@ -26,7 +26,7 @@ module.exports = function (app, ctx) {
     deps.forEach((d) => { if (d.status === 'live') count[d.companyId] = (count[d.companyId] || 0) + 1; });
     res.json({
       agencies: agencies.map((a) => ({
-        id: a._id, name: a.name, mode: a.mode === 'account' ? 'account' : 'company', status: a.status, installed: !!a.installed, installedAt: a.installedAt,
+        id: a._id, name: a.name, mode: a.mode === 'account' ? 'account' : 'company', apps: Object.keys(a.ghlApps || {}).length ? Object.keys(a.ghlApps) : [a.app === 'agency' ? 'agency' : 'standard'], status: a.status, installed: !!a.installed, installedAt: a.installedAt,
         live: count[a._id] || 0, keys: Object.keys(a.keyStatus || {}).filter((k) => a.keyStatus[k].ok),
         domain: (a.branding && a.branding.domain) || ''
       }))
@@ -42,15 +42,16 @@ module.exports = function (app, ctx) {
     res.json({ ok: true });
   }));
 
-  /* Setup check: is the HighLevel app configuration ready? */
+  /* Setup check: shared settings + each of the two Marketplace apps. */
+  const APP_ENV = {
+    standard: { id: 'GHL_CLIENT_ID', secret: 'GHL_CLIENT_SECRET', sso: 'GHL_SSO_KEY', target: 'Sub-account (distribution: Agency and Sub-account)' },
+    agency: { id: 'GHL_AGENCY_CLIENT_ID', secret: 'GHL_AGENCY_CLIENT_SECRET', sso: 'GHL_AGENCY_SSO_KEY', target: 'Agency' }
+  };
   app.get('/api/admin/setup', guard, h(async (req, res) => {
     const g = cfg.ghl;
     const https = /^https:\/\//.test(cfg.baseUrl) && !/localhost|127\.0\.0\.1/.test(cfg.baseUrl);
     const checks = [
       ['Public HTTPS URL (BASE_URL)', https, https ? cfg.baseUrl : 'Set BASE_URL to your public https domain. Cookies inside the CRM iframe need HTTPS.'],
-      ['Client ID (GHL_CLIENT_ID)', !!g.clientId, g.clientId ? 'App id: ' + (g.appId || '?') : 'Copy it from your app > Advanced Settings > Auth > Client Keys.'],
-      ['Client Secret (GHL_CLIENT_SECRET)', !!g.clientSecret, g.clientSecret ? 'Set' : 'Shown once when you create the client key.'],
-      ['SSO key (GHL_SSO_KEY)', !!g.ssoKey, g.ssoKey ? 'Set' : 'Generate it in Advanced Settings > Auth > SSO. Needed for the sidebar page.'],
       ['Webhook signature keys', !!(g.webhookEd25519Key || g.webhookRsaKey), g.webhookEd25519Key || g.webhookRsaKey ? 'Set' : 'Optional. Without them, uninstalls are confirmed by checking the token.'],
       ['Database', ctx.store.kind === 'mongo', ctx.store.kind === 'mongo' ? 'MongoDB' : 'Local file (development only). Set AI_CALL_CENTER_PLUS_MONGODB_URI.'],
       ['Separate ENCRYPTION_KEY', !!process.env.ENCRYPTION_KEY && process.env.ENCRYPTION_KEY !== cfg.sessionSecret, 'Use a different value from SESSION_SECRET and never change it after launch.'],
@@ -66,24 +67,36 @@ module.exports = function (app, ctx) {
       detail: (sw ? 'Last run ' + ago + ' min ago (' + sw.source + ').' : 'Has not run yet.') +
         (overdue.length ? ' Some speed-to-lead calls are waiting more than 15 minutes: add the free external pinger from the README so overnight leads and retries go out on time.' : '')
     });
-    res.json({
-      checks,
-      paste: {
-        'Redirect URL': cfg.redirectUri,
-        'Webhook URL (events: INSTALL, UNINSTALL)': cfg.baseUrl + '/webhooks/crm',
-        'Custom page URL (sidebar, company + account)': cfg.baseUrl + '/embed',
-        'Scopes': g.scopes,
-        'Install link': cfg.baseUrl + '/install'
-      }
+    const apps = Object.values(cfg.apps).map((a) => {
+      const e = APP_ENV[a.key];
+      return {
+        key: a.key, label: a.label, configured: !!(a.clientId && a.clientSecret),
+        checks: [
+          [e.id, !!a.clientId, a.clientId ? 'App id: ' + (a.appId || '?') : 'Copy it from this app > Advanced Settings > Auth > Client Keys.'],
+          [e.secret, !!a.clientSecret, a.clientSecret ? 'Set' : 'Shown once when you create the client key.'],
+          [e.sso, !!a.ssoKey, a.ssoKey ? 'Set' : 'Generate it in Advanced Settings > Auth > SSO. Needed for the sidebar page.']
+        ].map(([name, ok, detail]) => ({ name, ok, detail })),
+        paste: {
+          'Target User': e.target,
+          'Redirect URL': a.redirectUri,
+          'Webhook URL (events: INSTALL, UNINSTALL)': cfg.baseUrl + '/webhooks/crm',
+          'Custom page URL (sidebar)': cfg.baseUrl + '/embed',
+          'Scopes': a.scopes,
+          'Install link': cfg.baseUrl + a.installPath
+        }
+      };
     });
+    res.json({ checks, apps, paste: apps[0].paste });
   }));
 
-  // Proves the client id/secret pair without an install: HighLevel answers a
-  // fake refresh token with invalid_grant when the client is valid.
+  // Proves an app's client id/secret pair without an install: the CRM answers
+  // a fake refresh token with invalid_grant when the client is valid.
   app.post('/api/admin/setup/test', csrf, guard, h(async (req, res) => {
-    if (!cfg.ghl.clientId || !cfg.ghl.clientSecret) return res.json({ ok: false, detail: 'Client ID and secret are not set' });
+    const key = req.body && req.body.app === 'agency' ? 'agency' : 'standard';
+    const a = cfg.apps[key];
+    if (!a.clientId || !a.clientSecret) return res.json({ ok: false, detail: 'Client ID and secret are not set' });
     try {
-      await ctx.ghl.refresh('acc-credential-check');
+      await ctx.ghl.refresh('acc-credential-check', 'Company', key);
       res.json({ ok: true, detail: 'Unexpected success' });
     } catch (e) {
       const text = JSON.stringify(e.body || e.message).toLowerCase();

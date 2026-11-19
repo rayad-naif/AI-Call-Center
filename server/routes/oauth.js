@@ -13,16 +13,28 @@ const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{2,}$/;
 module.exports = function (app, ctx) {
   const { store, sec, cfg, ghl, auth } = ctx;
 
-  app.get('/install', (req, res) => {
+  /* One deployment, two Marketplace apps (cfg.apps):
+       standard  /install          -> /oauth/callback          (Target User: Sub-account)
+       agency    /install/agency   -> /oauth/agency/callback   (Target User: Agency) */
+  const install = (appKey) => (req, res) => {
+    if (!cfg.apps[appKey].clientId) return res.status(404).type('html').send(views.message(req, 'Not available', 'This app is not configured.'));
     const state = randomToken(16);
     res.append('Set-Cookie', 'acc_state=' + state + '; Path=/; HttpOnly; Max-Age=600; ' + (cfg.secureCookies ? 'Secure; SameSite=None' : 'SameSite=Lax'));
-    res.redirect(ghl.authorizeUrl(state));
-  });
+    res.redirect(ghl.authorizeUrl(state, appKey));
+  };
+  app.get('/install', install('standard'));
+  app.get('/install/agency', install('agency'));
+  app.get('/oauth/callback', h((req, res) => callback('standard', req, res)));
+  app.get('/oauth/agency/callback', h((req, res) => callback('agency', req, res)));
 
-  app.get('/oauth/callback', h(async (req, res) => {
+  async function callback(appKey, req, res) {
     const code = String(req.query.code || '');
     if (!code) return res.status(400).type('html').send(views.message(req, 'Install cancelled', 'The CRM did not send an authorization code.'));
-    const t = await ghl.exchangeCode(code);
+    if (!cfg.apps[appKey].clientId) return res.status(404).type('html').send(views.message(req, 'Not available', 'This app is not configured.'));
+    const t = await ghl.exchangeCode(code, appKey);
+    if (appKey === 'agency' && t.userType !== 'Company') {
+      return res.status(400).type('html').send(views.message(req, 'Install at company level', 'This app is installed by the company (company view), not inside a single account.'));
+    }
 
     /* Single-account install (userType "Location"). Two cases:
        - the account's company already runs the app for its accounts (bulk
@@ -43,7 +55,7 @@ module.exports = function (app, ctx) {
       try { loc = await ghl.api(t.access_token).getLocation(t.locationId); } catch (e) { /* name is optional */ }
       const prev = await store.get('agencies', wid);
       const ws = Object.assign(prev || { _id: wid, createdAt: new Date().toISOString(), status: cfg.newInstallStatus, keys: {}, setup: {}, branding: {} }, {
-        mode: 'account', locationId: t.locationId, ghlCompanyId: t.companyId,
+        mode: 'account', app: 'standard', locationId: t.locationId, ghlCompanyId: t.companyId,
         name: loc.name || (prev && prev.name) || 'Account ' + t.locationId.slice(-6),
         installed: true, installedAt: (prev && prev.installedAt) || new Date().toISOString(),
         ghl: { accessToken: sec.encrypt(t.access_token), refreshToken: sec.encrypt(t.refresh_token), expiresAt: Date.now() + (Number(t.expires_in) || 86399) * 1000, scope: t.scope || '', installerUserId: t.userId || '' }
@@ -58,34 +70,33 @@ module.exports = function (app, ctx) {
     let company = {};
     try { company = await ghl.api(t.access_token).getCompany(t.companyId); } catch (e) { /* name is optional */ }
     const existing = await store.get('agencies', t.companyId);
-    const agency = Object.assign(existing || {
-      _id: t.companyId,
-      createdAt: new Date().toISOString(),
-      status: cfg.newInstallStatus,
-      keys: {},
-      setup: {},
-      branding: {}
-    }, {
+    const tokens = {
+      accessToken: sec.encrypt(t.access_token),
+      refreshToken: sec.encrypt(t.refresh_token),
+      expiresAt: Date.now() + (Number(t.expires_in) || 86399) * 1000,
+      scope: t.scope || '',
+      installerUserId: t.userId || ''
+    };
+    const base = existing || { _id: t.companyId, createdAt: new Date().toISOString(), status: cfg.newInstallStatus, keys: {}, setup: {}, branding: {} };
+    const ghlApps = Object.assign({}, base.ghlApps || {}, { [appKey]: tokens });
+    // A company can install both apps. The account app (full scopes, minted
+    // account tokens) stays in charge; the company app is kept alongside it.
+    const keepStandard = appKey === 'agency' && existing && existing.installed && existing.app !== 'agency';
+    const agency = Object.assign(base, {
       name: company.name || (existing && existing.name) || 'Company ' + t.companyId.slice(-6),
       installed: true,
       installedAt: (existing && existing.installedAt) || new Date().toISOString(),
-      ghl: {
-        accessToken: sec.encrypt(t.access_token),
-        refreshToken: sec.encrypt(t.refresh_token),
-        expiresAt: Date.now() + (Number(t.expires_in) || 86399) * 1000,
-        scope: t.scope || '',
-        installerUserId: t.userId || ''
-      }
-    });
+      ghlApps
+    }, keepStandard ? {} : { app: appKey, ghl: tokens });
     await store.put('agencies', agency);
-    await store.log(agency._id, existing ? 'app.reinstalled' : 'app.installed', agency.name);
+    await store.log(agency._id, existing ? 'app.reinstalled' : 'app.installed', agency.name + (appKey === 'agency' ? ' (company app)' : ''));
 
     const owner = (await store.find('users', { companyId: agency._id, role: 'owner' }, { limit: 1 }))[0];
     // One-time setup token so only the installer can claim the owner login.
     const setup = sec.sign({ setup: agency._id, exp: Date.now() + 30 * 60e3 });
     if (!owner) return res.redirect('/app/setup?t=' + encodeURIComponent(setup));
     res.redirect('/login?installed=1');
-  }));
+  }
 
   app.get('/app/setup', h(async (req, res) => {
     const s = sec.unsign(String(req.query.t || ''));
@@ -139,9 +150,12 @@ module.exports = function (app, ctx) {
   app.get('/embed', (req, res) => res.type('html').send(views.embed(req)));
 
   app.post('/api/auth/sso', csrf, h(async (req, res) => {
-    if (!cfg.ghl.ssoKey) return res.status(500).json({ error: 'SSO is not configured (GHL_SSO_KEY)' });
+    // Either app can open the sidebar page; try each app's SSO key.
+    const keys = Object.values(cfg.apps).map((a) => a.ssoKey).filter(Boolean);
+    if (!keys.length) return res.status(500).json({ error: 'SSO is not configured (GHL_SSO_KEY / GHL_AGENCY_SSO_KEY)' });
     if (!ctx.limits.login('sso:' + req.ip)) return res.status(429).json({ error: 'Too many attempts' });
-    const u = decryptGhlSso(req.body.payload, cfg.ghl.ssoKey);
+    let u = null;
+    for (const k of keys) { u = decryptGhlSso(req.body.payload, k); if (u) break; }
     if (!u || !u.userId || !u.companyId) return res.status(401).json({ error: 'Sign-in failed. Reload the page.' });
     // Field names differ slightly between HighLevel versions; accept both.
     const locationId = u.activeLocation || u.locationId || '';

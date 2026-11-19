@@ -44,6 +44,7 @@ module.exports = function (app, ctx) {
     const a = req.agency;
     res.json({
       id: a._id, name: a.name, status: a.status, mode: a.mode === 'account' ? 'account' : 'company', locationId: a.locationId || '',
+      edition: agencySvc.edition(req.agency),
       keys: agencySvc.publicKeys(a),
       setup: { takeoverNumber: (a.setup && a.setup.takeoverNumber) || '', browserCalling: !!(a.setup && a.setup.twimlAppSid), vapiCredential: !!(a.setup && a.setup.vapiCredentialId) },
       branding: Object.assign({}, branding.normalizeBranding({}, a.branding || {}), { domain: (a.branding && a.branding.domain) || '' }),
@@ -104,21 +105,44 @@ module.exports = function (app, ctx) {
     }
     const deps = await store.find('deployments', { companyId: req.agency._id });
     const byId = new Map(deps.map((d) => [d._id, d]));
-    // Which sub-accounts have the app installed (needed for location tokens).
+    // Company app: accounts connect with Private Integration tokens instead.
+    const agencyEdition = agencySvc.edition(req.agency) === 'agency';
+    // Which accounts have the account app installed (needed for location tokens).
     let installed = null;
-    if (cfg.ghl.appId) {
-      try { installed = new Set((await api.installedLocations(req.agency._id, cfg.ghl.appId)).map((l) => l._id || l.id)); } catch (e) { installed = null; }
+    if (!agencyEdition && cfg.apps.standard.appId) {
+      try { installed = new Set((await api.installedLocations(req.agency._id, cfg.apps.standard.appId)).map((l) => l._id || l.id)); } catch (e) { installed = null; }
     }
     const tracked = new Map((await store.find('locationInstalls', { companyId: req.agency._id })).map((x) => [x._id, x.installed]));
+    const tokens = await agencySvc.crmTokenIds(req.agency);
     res.json({
-      installCheck: installed !== null,
+      installCheck: installed !== null || agencyEdition,
+      edition: agencySvc.edition(req.agency),
       locations: locs.map((l) => {
         const id = l.id || l._id;
         const d = byId.get(id);
-        const appInstalled = installed ? installed.has(id) : (tracked.has(id) ? tracked.get(id) : null);
-        return { id, name: l.name, city: l.city || '', state: l.state || '', timezone: l.timezone || '', status: d ? d.status : 'none', phoneNumber: d && d.twilio ? d.twilio.phoneNumber || '' : '', appInstalled };
+        const crmToken = tokens.has(id);
+        // Company app: an account is reachable once its token is saved.
+        const appInstalled = agencyEdition ? crmToken : (crmToken || (installed ? installed.has(id) : (tracked.has(id) ? tracked.get(id) : null)));
+        return { id, name: l.name, city: l.city || '', state: l.state || '', timezone: l.timezone || '', status: d ? d.status : 'none', phoneNumber: d && d.twilio ? d.twilio.phoneNumber || '' : '', appInstalled, crmToken };
       }).sort((x, y) => (x.status === 'none') - (y.status === 'none') || String(x.name).localeCompare(String(y.name)))
     });
+  }));
+
+  /* Sub-account Private Integration token (agency edition; also a fallback for
+     accounts where the app is not installed). Checked live before saving. */
+  app.get('/api/locations/:id/crm-token', ...admin, h(async (req, res) => {
+    res.json({ connected: await agencySvc.hasCrmToken(req.agency, req.params.id), edition: agencySvc.edition(req.agency) });
+  }));
+  app.put('/api/locations/:id/crm-token', ...admin, h(async (req, res) => {
+    if (req.agency.mode === 'account') throw httpError(400, 'This workspace already has CRM access.');
+    const r = await agencySvc.setCrmToken(req.agency, req.params.id, (req.body || {}).token);
+    await store.log(req.agency._id, 'crm.connected', r.name || req.params.id);
+    res.json({ connected: true, name: r.name });
+  }));
+  app.delete('/api/locations/:id/crm-token', ...admin, h(async (req, res) => {
+    await agencySvc.clearCrmToken(req.agency, req.params.id);
+    await store.log(req.agency._id, 'crm.disconnected', req.params.id);
+    res.json({ connected: false });
   }));
 
   // Pipelines + calendars of one sub-account, for the deploy wizard.

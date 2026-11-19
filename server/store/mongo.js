@@ -22,6 +22,7 @@ async function ensureIndexes(d) {
     d.collection('leads').createIndex({ locationId: 1, phone: 1, createdAt: -1 }),
     d.collection('leads').createIndex({ locationId: 1, lastCallAt: -1 }),
     d.collection('leads').createIndex({ createdAt: 1 }, { expireAfterSeconds: 90 * 86400 }),
+    d.collection('crmTokens').createIndex({ companyId: 1 }),
     d.collection('events').createIndex({ companyId: 1, at: -1 }),
     d.collection('events').createIndex({ at: 1 }, { expireAfterSeconds: EVENT_TTL_DAYS * 86400 })
   ].map((p) => p.catch((e) => console.warn('[store] index not created: ' + e.message))));

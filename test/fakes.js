@@ -77,8 +77,17 @@ function createFakes() {
     /* ---- HighLevel ---- */
     if (u.host === 'services.leadconnectorhq.com') {
       let m;
+      // Private Integration tokens: "pit-bad…" is rejected, "pit-other…" belongs to another account.
+      const auth = String((init.headers || {}).Authorization || '');
+      state.ghl.auth = state.ghl.auth || [];
+      state.ghl.auth.push({ path: p, auth });
+      if (/^Bearer pit-bad/.test(auth)) return json(401, { message: 'Invalid token' });
+      if (/^Bearer pit-other/.test(auth) && (m = p.match(/^\/locations\/(\w+)$/))) return json(200, { location: { id: 'someotherloc', name: 'Other' } });
+      if (p === '/contacts/' && method === 'GET') return json(200, { contacts: [] });
       if (p === '/oauth/token') {
-        if (body.client_secret !== 'secret') return json(401, { error: 'invalid_client', error_description: 'Invalid client' });
+        const clients = { 'app1-abc': 'secret', 'app2-xyz': 'secret2' };
+        if (clients[body.client_id] !== body.client_secret) return json(401, { error: 'invalid_client', error_description: 'Invalid client' });
+        state.ghl.tokenClients = (state.ghl.tokenClients || []).concat(body.client_id);
         if (body.grant_type === 'refresh_token') {
           if (state.ghl.usedRefresh.has(body.refresh_token) || body.refresh_token === 'acc-credential-check') return json(400, { error: 'invalid_grant', error_description: 'Invalid refresh token' });
           state.ghl.usedRefresh.add(body.refresh_token);

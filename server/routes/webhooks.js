@@ -87,9 +87,12 @@ module.exports = function (app, ctx) {
     const b = req.body || {};
     const companyId = b.companyId;
     if (!companyId || !/^(INSTALL|UNINSTALL)$/.test(b.type || '')) return res.json({ ignored: true });
-    if (b.appId && cfg.ghl.clientId && !cfg.ghl.clientId.startsWith(b.appId)) return res.json({ ignored: true });
+    // Which of our two apps sent this (events without an appId count as the account app).
+    const appKey = b.appId ? ctx.ghl.appKeyForId(b.appId) : 'standard';
+    if (!appKey) return res.json({ ignored: true });
     // Sub-account level events: track which sub-accounts have the app; the agency license is unchanged.
     if (b.locationId && b.installType !== 'Company') {
+      if (appKey !== 'standard') return res.json({ ignored: true });
       const ws = await store.get('agencies', 'acct_' + b.locationId);
       if (ws && b.type === 'UNINSTALL') {
         // Without signature keys, confirm by checking the account's own token.
@@ -104,13 +107,20 @@ module.exports = function (app, ctx) {
     if (!agency) return res.json({ ok: true });
 
     if (b.type === 'UNINSTALL') {
+      const primary = ctx.agencySvc.edition(agency) === appKey;
       // Without signature keys, double-check by trying the refresh token.
-      if (verified === null) {
+      if (primary && verified === null) {
         const stillValid = await ctx.agencySvc.agencyToken(agency).then(() => true, () => false);
         if (stillValid) return res.json({ ok: true, ignored: 'token still valid' });
       }
-      await store.patch('agencies', companyId, { installed: false, uninstalledAt: new Date().toISOString() });
-      await store.log(companyId, 'app.uninstalled', '');
+      // The company may still have the other app installed: switch to it.
+      const apps = Object.assign({}, agency.ghlApps || {});
+      delete apps[appKey];
+      const other = Object.keys(apps)[0];
+      if (!primary) await store.patch('agencies', companyId, { ghlApps: apps });
+      else if (other) await store.patch('agencies', companyId, { ghlApps: apps, app: other, ghl: apps[other] });
+      else await store.patch('agencies', companyId, { ghlApps: apps, installed: false, uninstalledAt: new Date().toISOString() });
+      await store.log(companyId, 'app.uninstalled', (appKey === 'agency' ? 'company app' : 'account app') + (primary && other ? ', still running on the other app' : ''));
     } else {
       await store.patch('agencies', companyId, { installed: true });
       await store.log(companyId, 'app.installed', 'webhook');

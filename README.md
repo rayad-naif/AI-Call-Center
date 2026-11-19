@@ -43,8 +43,9 @@ Leads that arrive during calling hours are called at once. Leads that arrive aft
 | --- | --- |
 | Landing (or sign-in on a custom domain) | `/` |
 | Docs / Privacy / Terms | `/docs`, `/privacy`, `/terms` |
-| Install (starts HighLevel OAuth) | `/install` |
-| OAuth redirect URL (put in the GHL app) | `/oauth/callback` |
+| Install, account app / company app | `/install`, `/install/agency` |
+| OAuth redirect URL, account app | `/oauth/callback` |
+| OAuth redirect URL, company app | `/oauth/agency/callback` |
 | Webhook URL (put in the CRM app) | `/webhooks/crm` (INSTALL, UNINSTALL; `/webhooks/ghl` also works) |
 | Custom page / custom menu link (SSO) | `/embed` |
 | Agency console | `/app` |
@@ -88,7 +89,21 @@ HighLevel's API cannot create pipelines, so put a voice pipeline in your snapsho
 
 ## HighLevel app settings (step by step)
 
-Do this in the HighLevel Marketplace developer portal, in your app's settings. After deploying, **Super Admin → HighLevel app setup** shows every URL to paste, flags missing settings, and has a **Test Client ID / Secret** button that checks the pair with HighLevel.
+One repo and one Vercel project serve **two Marketplace apps**. Both use the same domain, database, webhook URL and sidebar page; each has its own client keys and redirect URL:
+
+| | Account app | Company app |
+| --- | --- | --- |
+| Target User | Sub-account (distribution: Agency and Sub-account) | Agency |
+| Redirect URL | `${BASE_URL}/oauth/callback` | `${BASE_URL}/oauth/agency/callback` |
+| Webhook URL | `${BASE_URL}/webhooks/crm` | `${BASE_URL}/webhooks/crm` (same; events are told apart by `appId`) |
+| Custom page | `${BASE_URL}/embed` | `${BASE_URL}/embed` (same; either app's SSO key is accepted) |
+| Scopes | the full list below | `companies.readonly locations.readonly users.readonly` |
+| Env vars | `GHL_CLIENT_ID`, `GHL_CLIENT_SECRET`, `GHL_SSO_KEY` | `GHL_AGENCY_CLIENT_ID`, `GHL_AGENCY_CLIENT_SECRET`, `GHL_AGENCY_SSO_KEY` |
+| CRM access per client | location tokens minted automatically | a Private Integration token pasted per client account |
+
+You can publish either app alone or both. After deploying, **Super Admin** shows a card for each app with every value to paste, flags missing settings, and has a **Test Client ID / Secret** button per app.
+
+### Account app
 
 1. **Basic info:** Target User **Sub-account**. Distribution: **Agency and Sub-account**, so an agency can install it for its sub-accounts (one, several or all) and a sub-account can also install it for itself.
 2. **Auth → Scopes:** add every scope below (the default `GHL_SCOPES`):
@@ -102,6 +117,26 @@ Do this in the HighLevel Marketplace developer portal, in your app's settings. A
    - other agency users get the Command Deck;
    - anyone inside a sub-account gets that sub-account's deck only (once it is deployed).
 8. **Pricing:** a one-time install fee through Marketplace billing. `NEW_INSTALL_STATUS=pending` lets you approve each agency manually in Super Admin instead.
+
+### Company app
+
+1. **Basic info:** Target User **Agency**.
+2. **Auth → Scopes:** `companies.readonly`, `locations.readonly`, `users.readonly`. HighLevel offers only agency-level scopes to Agency apps, so there is no contacts, calendars, conversations or `oauth.write` access here.
+3. **Auth → Redirect URL:** `${BASE_URL}/oauth/agency/callback`
+4. **Auth → Client Keys:** put them in `GHL_AGENCY_CLIENT_ID` and `GHL_AGENCY_CLIENT_SECRET`. Set `GHL_AGENCY_APP_ID` only if the app id is not the part of the Client ID before the first "-".
+5. **Auth → SSO:** generate the key and put it in `GHL_AGENCY_SSO_KEY`.
+6. **Webhooks:** the same `${BASE_URL}/webhooks/crm`, events INSTALL and UNINSTALL.
+7. **Modules → Custom Page:** the same `${BASE_URL}/embed`.
+8. **Connecting each client:** in the client's sub-account, open **Settings → Private Integrations → Create new integration** with these scopes, then paste the token into **Clients → (client) → CRM connection**:
+   - View/Edit Contacts, View/Edit Opportunities
+   - View Calendars, View/Edit Calendar Events
+   - View/Edit Custom Fields
+   - View/Edit Conversations, View/Edit Conversation Messages
+   - View Locations, View Users
+
+   The token is checked live: it must belong to that sub-account and be able to read contacts. It is stored encrypted and used for every CRM call for that client. Until a client is connected, its CRM steps answer "Connect this account first".
+
+**If a company installs both apps:** the account app is in charge, because its scopes are fuller. The company app is kept alongside it. Uninstalling either app leaves the company running on the other; uninstalling both switches the workspace off. On the account app, the same CRM connection box appears for any sub-account where that app isn't installed, as a fallback.
 
 ### How installs work
 
@@ -121,7 +156,7 @@ The app is a sub-account app that an agency can install for its sub-accounts. Bo
 ## Deploy (Vercel + MongoDB Atlas)
 
 1. Create an Atlas cluster and allow Vercel's network (`0.0.0.0/0` or the Vercel integration).
-2. Import this repo into Vercel and set the environment variables from `.env.example`. These are required: `BASE_URL`, `AI_CALL_CENTER_PLUS_MONGODB_URI` (added automatically by Vercel's MongoDB Atlas integration; a plain `MONGODB_URI` also works), `MONGODB_DB`, `GHL_CLIENT_ID`, `GHL_CLIENT_SECRET`, `GHL_SSO_KEY`, `ADMIN_PASSWORD`, `SESSION_SECRET`, `ENCRYPTION_KEY`, `CRON_SECRET`.
+2. Import this repo into Vercel and set the environment variables from `.env.example`. These are required: `BASE_URL`, `AI_CALL_CENTER_PLUS_MONGODB_URI` (added automatically by Vercel's MongoDB Atlas integration; a plain `MONGODB_URI` also works), `MONGODB_DB`, `ADMIN_PASSWORD`, `SESSION_SECRET`, `ENCRYPTION_KEY`, `CRON_SECRET`, plus the keys for each app you publish: `GHL_CLIENT_ID` / `GHL_CLIENT_SECRET` / `GHL_SSO_KEY` (account app) and `GHL_AGENCY_CLIENT_ID` / `GHL_AGENCY_CLIENT_SECRET` / `GHL_AGENCY_SSO_KEY` (company app).
 3. Add your domain. `vercel.json` routes everything to `api/index.js` and has one daily cron. That fits Vercel's free Hobby plan, which allows only daily crons.
 4. Optional: to attach agencies' custom domains automatically, set `VERCEL_API_TOKEN` and `VERCEL_PROJECT_ID`. Without them, add each domain in Vercel yourself after the agency verifies its CNAME.
 5. Run `npm run db:init` once, or let the indexes create themselves on first use.

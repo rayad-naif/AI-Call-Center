@@ -125,7 +125,8 @@ function docs(req, cfg) {
       '<li>Redirect URL: <code>' + esc(base) + '/oauth/callback</code></li>' +
       '<li>Webhook URL: <code>' + esc(base) + '/webhooks/crm</code> (INSTALL, UNINSTALL)</li>' +
       '<li>Custom page / SSO URL: <code>' + esc(base) + '/embed</code></li>' +
-      '<li>Scopes: <code>' + esc(cfg.ghl.scopes) + '</code></li></ul>' +
+      '<li>Account app (Target User: Sub-account): redirect <code>' + esc(cfg.apps.standard.redirectUri) + '</code>, scopes <code>' + esc(cfg.apps.standard.scopes) + '</code></li>' +
+      '<li>Company app (Target User: Agency): redirect <code>' + esc(cfg.apps.agency.redirectUri) + '</code>, scopes <code>' + esc(cfg.apps.agency.scopes) + '</code>. Each client account is connected with a Private Integration token from that account.</li></ul>' +
       '<h2>Support</h2><p>Email <a href="mailto:' + esc(cfg.brand.supportEmail) + '">' + esc(cfg.brand.supportEmail) + '</a>.</p></article>'
   });
 }

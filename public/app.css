@@ -237,3 +237,6 @@ details summary { cursor: pointer; font-weight: 600; margin: 8px 0; }
   body { background: #fff; color: #000; }
   .card, .stat { box-shadow: none; break-inside: avoid; }
 }
+
+/* CRM connection box (agency edition) */
+.card.needs-connect { border-color: var(--warn); }

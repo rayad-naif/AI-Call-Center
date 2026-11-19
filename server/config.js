@@ -35,6 +35,19 @@ const DEFAULT_SCOPES = [
   'conversations/message.write'
 ].join(' ');
 
+/* The same deployment serves two Marketplace apps:
+     standard  Target User Sub-account (agencies can bulk-install it for their
+               sub-accounts). Full scopes; location tokens are minted.
+     agency    Target User Agency. HighLevel only offers agency-level scopes
+               there (no contacts, calendars, conversations or oauth.write), so
+               each client account is connected with its own Private
+               Integration token instead of a minted location token. */
+const AGENCY_SCOPES = [
+  'companies.readonly',
+  'locations.readonly',
+  'users.readonly'
+].join(' ');
+
 function load(env) {
   env = env || process.env;
   const vercelUrl = env.VERCEL_PROJECT_PRODUCTION_URL ? 'https://' + env.VERCEL_PROJECT_PRODUCTION_URL : '';
@@ -87,6 +100,23 @@ function load(env) {
     // Run the sweep from normal traffic at most this often (0 = off).
     sweepIntervalSec: env.SWEEP_INTERVAL_SEC === undefined ? 60 : Math.max(0, Number(env.SWEEP_INTERVAL_SEC) || 0),
     redirectUri: baseUrl + '/oauth/callback',
+    // Both Marketplace apps, keyed by edition. cfg.ghl above is the standard app.
+    apps: {
+      standard: {
+        key: 'standard', label: 'Account app (Target User: Sub-account)',
+        clientId: env.GHL_CLIENT_ID || '', clientSecret: env.GHL_CLIENT_SECRET || '', ssoKey: env.GHL_SSO_KEY || '',
+        appId: env.GHL_APP_ID || String(env.GHL_CLIENT_ID || '').split('-')[0],
+        scopes: env.GHL_SCOPES || DEFAULT_SCOPES,
+        redirectUri: baseUrl + '/oauth/callback', installPath: '/install'
+      },
+      agency: {
+        key: 'agency', label: 'Company app (Target User: Agency)',
+        clientId: env.GHL_AGENCY_CLIENT_ID || '', clientSecret: env.GHL_AGENCY_CLIENT_SECRET || '', ssoKey: env.GHL_AGENCY_SSO_KEY || '',
+        appId: env.GHL_AGENCY_APP_ID || String(env.GHL_AGENCY_CLIENT_ID || '').split('-')[0],
+        scopes: env.GHL_AGENCY_SCOPES || AGENCY_SCOPES,
+        redirectUri: baseUrl + '/oauth/agency/callback', installPath: '/install/agency'
+      }
+    },
     brand: {
       name: env.BRAND_NAME || 'AI Call Center',
       supportEmail: env.SUPPORT_EMAIL || 'support@example.com',
@@ -103,8 +133,9 @@ function validate(cfg) {
   if (!cfg.encryptionKey || cfg.encryptionKey.length < 32) problems.push('ENCRYPTION_KEY must be at least 32 characters');
   if (!cfg.adminPassword || cfg.adminPassword.length < 10) problems.push('ADMIN_PASSWORD must be at least 10 characters');
   if (cfg.serverless && !cfg.mongoUri) problems.push('AI_CALL_CENTER_PLUS_MONGODB_URI (or MONGODB_URI) is required on Vercel (its filesystem is not persistent)');
-  if (!cfg.ghl.clientId || !cfg.ghl.clientSecret) problems.push('GHL_CLIENT_ID and GHL_CLIENT_SECRET are required');
+  const ok = (a) => a.clientId && a.clientSecret;
+  if (!ok(cfg.apps.standard) && !ok(cfg.apps.agency)) problems.push('Set GHL_CLIENT_ID + GHL_CLIENT_SECRET (account app) and/or GHL_AGENCY_CLIENT_ID + GHL_AGENCY_CLIENT_SECRET (company app)');
   return problems;
 }
 
-module.exports = { load, validate, DEFAULT_SCOPES };
+module.exports = { load, validate, DEFAULT_SCOPES, AGENCY_SCOPES };

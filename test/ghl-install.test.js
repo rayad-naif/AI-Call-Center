@@ -138,11 +138,14 @@ test('refresh tokens: single-use race and credential check', async (t) => {
   const admin = client(env.base);
   await admin.req('POST', '/api/admin/login', { password: 'admin-password-1' });
   let r = await admin.req('GET', '/api/admin/setup');
-  assert.ok(r.json.checks.length >= 7);
-  assert.equal(r.json.paste['Custom page URL (sidebar, company + account)'], env.base + '/embed');
+  assert.ok(r.json.checks.length >= 5);
+  assert.equal(r.json.apps[0].checks.length, 3);
+  assert.equal(r.json.apps.length, 2);
+  assert.equal(r.json.apps[1].paste['Redirect URL'], env.base + '/oauth/agency/callback');
+  assert.equal(r.json.apps[0].paste['Custom page URL (sidebar)'], env.base + '/embed');
   r = await admin.req('POST', '/api/admin/setup/test', {});
   assert.equal(r.json.ok, true, r.json.detail);
-  env.cfg.ghl.clientSecret = 'nope';
+  env.cfg.apps.standard.clientSecret = 'nope';
   r = await admin.req('POST', '/api/admin/setup/test', {});
   assert.equal(r.json.ok, false);
 });

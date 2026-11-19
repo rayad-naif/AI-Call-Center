@@ -48,7 +48,7 @@ function createAgencyService(ctx) {
     if (!refreshToken) throw new Error('The CRM is not connected for this company. Reinstall the app.');
     let r;
     try {
-      r = await ghl.refresh(refreshToken, agency.mode === 'account' ? 'Location' : 'Company');
+      r = await ghl.refresh(refreshToken, agency.mode === 'account' ? 'Location' : 'Company', edition(agency));
     } catch (e) {
       // HighLevel refresh tokens are single-use. If a parallel request (another
       // serverless instance) refreshed first, use the token it saved.
@@ -69,20 +69,73 @@ function createAgencyService(ctx) {
       expiresAt: Date.now() + (Number(r.expires_in) || 86399) * 1000,
       scope: r.scope || t.scope || ''
     };
-    await store.patch('agencies', agency._id, { ghl: ghlDoc });
+    // Keep the per-app copy in step (a workspace can have both apps installed).
+    await store.patch('agencies', agency._id, { ghl: ghlDoc, ['ghlApps.' + edition(agency)]: ghlDoc });
     agency.ghl = ghlDoc;
     return r.access_token;
   }
+
+  // Which Marketplace app this workspace runs on: 'standard' or 'agency'.
+  function edition(agency) { return agency && agency.app === 'agency' ? 'agency' : 'standard'; }
 
   async function agencyApi(agency) { return ghl.api(await agencyToken(agency)); }
 
   // Location token, cached on the deployment (falls back to a per-process cache).
   const memo = new Map();
+
+  /* Sub-account Private Integration token (agency edition, or any account where
+     the app is not installed). Stored encrypted, one per sub-account. */
+  async function crmTokenDoc(agency, locationId) {
+    const doc = await store.get('crmTokens', locationId);
+    return doc && doc.companyId === agency._id && doc.token ? doc : null;
+  }
+  async function hasCrmToken(agency, locationId) { return !!(await crmTokenDoc(agency, locationId)); }
+  async function crmTokenIds(agency) {
+    return new Set((await store.find('crmTokens', { companyId: agency._id })).filter((d) => d.token).map((d) => d._id));
+  }
+  // Checks the token against the account before saving it.
+  async function setCrmToken(agency, locationId, token) {
+    token = String(token || '').trim();
+    if (!/^[\w.-]{20,4096}$/.test(token)) throw Object.assign(new Error('Paste the full Private Integration token from the account.'), { status: 400 });
+    const api = ghl.api(token);
+    let loc;
+    try { loc = await api.getLocation(locationId); } catch (e) {
+      throw Object.assign(new Error(e.status === 401 || e.status === 403
+        ? 'The CRM rejected this token for this account. Create it inside this account (Settings > Private Integrations) with the scopes listed in the CRM connection box.'
+        : 'Could not check the token: ' + e.message.replace(/^\w+: /, '')), { status: 400 });
+    }
+    const id = loc && (loc.id || loc._id);
+    if (id && id !== locationId) throw Object.assign(new Error('This token belongs to a different account.'), { status: 400 });
+    // Contacts access is the minimum the call center needs.
+    try { await api.raw('GET', '/contacts/', null, { locationId, limit: 1 }); } catch (e) {
+      if (e.status === 401 || e.status === 403) throw Object.assign(new Error('The token is missing contact access. Give it every scope listed in the CRM connection box.'), { status: 400 });
+    }
+    await store.put('crmTokens', { _id: locationId, companyId: agency._id, token: sec.encrypt(token), name: (loc && loc.name) || '', updatedAt: new Date().toISOString() });
+    memo.delete(locationId);
+    const dep = await store.get('deployments', locationId);
+    if (dep && dep.ghlToken) await store.patch('deployments', locationId, { ghlToken: null });
+    return { name: (loc && loc.name) || '' };
+  }
+  async function clearCrmToken(agency, locationId) {
+    const doc = await crmTokenDoc(agency, locationId);
+    if (doc) await store.put('crmTokens', { _id: locationId, companyId: agency._id, token: '', updatedAt: new Date().toISOString() });
+    memo.delete(locationId);
+  }
+
   async function locationApi(agency, locationId) {
     // Single-account workspace: its own install token is already a location token.
     if (agency.mode === 'account') {
       if (locationId !== agency.locationId) throw Object.assign(new Error('This workspace can only manage its own account.'), { status: 403 });
       return ghl.api(await agencyToken(agency));
+    }
+    // A Private Integration token for this sub-account wins over minted tokens.
+    const pit = await crmTokenDoc(agency, locationId);
+    if (pit) {
+      const token = sec.decrypt(pit.token);
+      if (token) return ghl.api(token);
+    }
+    if (edition(agency) === 'agency') {
+      throw Object.assign(new Error('Connect this account first: paste a Private Integration token from the account in its CRM connection box.'), { status: 409, provider: 'CRM' });
     }
     const dep = await store.get('deployments', locationId);
     const cached = dep && dep.ghlToken;
@@ -118,7 +171,7 @@ function createAgencyService(ctx) {
     return a;
   }
 
-  return { keys, publicKeys, encryptKeys, agencyToken, agencyApi, locationApi, requireActive };
+  return { keys, publicKeys, encryptKeys, agencyToken, agencyApi, locationApi, requireActive, hasCrmToken, crmTokenIds, setCrmToken, clearCrmToken, edition };
 }
 
 module.exports = { createAgencyService, KEY_FIELDS };
