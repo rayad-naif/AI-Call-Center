@@ -123,6 +123,9 @@ function createFakes() {
       if (p === '/opportunities/upsert') { state.ghl.opportunities.push(body); return json(200, { opportunity: { id: 'opp1' } }); }
       return json(404, { message: 'no route ' + p });
     }
+    /* ---- Outgoing webhook receivers ---- */
+    if (u.host === 'hooks.example.test') { (state.hooks = state.hooks || []).push({ headers: init.headers, body: init.body }); return json(200, { ok: true }); }
+    if (u.host === 'down.example.test') return json(500, { error: 'down' });
     return json(404, { message: 'unknown host ' + u.host });
   }
 

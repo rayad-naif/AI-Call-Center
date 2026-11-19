@@ -15,6 +15,8 @@ const { createQaService } = require('./services/qa');
 const { createToolService } = require('./services/tools');
 const { createBranding } = require('./services/branding');
 const { createAutomation } = require('./services/automation');
+const { createPlatform } = require('./services/platform');
+const { createOutgoingWebhooks } = require('./services/webhooks-out');
 const { createAuth } = require('./auth');
 const { neutral, isClientView } = require('./whitelabel');
 
@@ -46,6 +48,14 @@ function createApp(cfg, deps) {
   ctx.tools = createToolService(ctx);
   ctx.branding = createBranding(ctx, deps);
   ctx.automation = createAutomation(ctx);
+  ctx.platform = createPlatform(ctx);
+  ctx.webhooksOut = createOutgoingWebhooks(ctx, deps);
+  // Every activity-log entry can become an outgoing webhook event.
+  const rawLog = ctx.store.log.bind(ctx.store);
+  ctx.store.log = async (companyId, type, detail, extra) => {
+    await rawLog(companyId, type, detail, extra);
+    ctx.webhooksOut.onLog(companyId, type, detail, extra).catch((e) => console.error('[webhooks] ' + e.message));
+  };
   ctx.auth = createAuth(cfg, ctx);
   ctx.background = deps.background || backgroundRunner();
   ctx.limits = {
@@ -76,7 +86,8 @@ function createApp(cfg, deps) {
     let leads = 0, synced = 0, n;
     do { n = await ctx.automation.processDueLeads(25); leads += n; } while (n === 25 && Date.now() < deadline);
     do { n = await ctx.qa.retryQueued(25); synced += n; } while (n >= 25 && Date.now() < deadline);
-    const result = { stale, synced, leads };
+    const webhooks = await ctx.webhooksOut.retryDue(50);
+    const result = { stale, synced, leads, webhooks };
     await ctx.store.put('meta', { _id: 'sweep', lastAt: new Date().toISOString(), source: source || 'manual', result });
     return result;
   };
@@ -125,6 +136,7 @@ function createApp(cfg, deps) {
   require('./routes/agency')(app, ctx);
   require('./routes/live')(app, ctx);
   require('./routes/automation')(app, ctx);
+  require('./routes/api-v1')(app, ctx);
   require('./routes/admin')(app, ctx);
   require('./routes/pages')(app, ctx);
 

@@ -153,6 +153,42 @@ The app is a sub-account app that an agency can install for its sub-accounts. Bo
 - **Token refresh:** HighLevel refresh tokens are single-use. When two requests refresh at once, the second reuses the token the first saved. A revoked token shows "Reinstall the app" instead of failing silently.
 - **Iframe sign-in:** session cookies are `SameSite=None; Secure; Partitioned`, so `BASE_URL` must be HTTPS. Pages are never blocked from framing, because white-label CRM domains vary.
 
+## Super Admin portal
+
+`/admin` (password `ADMIN_PASSWORD`) covers the whole platform:
+
+| Tab | What it shows |
+| --- | --- |
+| Dashboard | Companies, single accounts, live call centers, live calls, calls, minutes, bookings, QA, voice cost, leads, CRM sync health, a daily chart, top companies and a "needs attention" list |
+| Companies | Search and filter every company; open one to see its apps, license (change it there), provider keys, call centers (with deploy steps and errors), users, 30-day stats, recent calls, leads and activity |
+| Calls | Every call across the platform, filtered by company, status, outcome, direction, CRM sync and alerts; click one for the transcript, grade, recording and sync result |
+| Leads | The speed-to-lead queue and results |
+| Activity | The full activity log, filtered by company and event type |
+| Webhooks | Push events to your other apps, with a delivery log, test pings and pause/resume |
+| API | API keys and the full API reference with copyable curl examples |
+| Setup | Platform checks, plus a card for each Marketplace app with every value to paste and a credential test |
+
+## REST API and webhooks (connect your other apps)
+
+- **Base URL:** `${BASE_URL}/api/v1`. The machine-readable spec is at `${BASE_URL}/api/v1/openapi.json` (OpenAPI 3).
+- **Auth:** `Authorization: Bearer acc_…`. Create one key per app in **Super Admin → API**:
+  - a **read** key reads data; a **write** key can also send leads and change licenses;
+  - a key can be limited to one company;
+  - keys are stored only as a SHA-256 hash and can be revoked at any time.
+- **Endpoints:**
+  - `GET /health`, `GET /stats`
+  - `GET /companies`, `GET|PATCH /companies/{id}`
+  - `GET /accounts`, `GET /accounts/{id}`
+  - `GET /calls`, `GET /calls/{id}` (with transcript)
+  - `GET /leads`, `GET /leads/{id}`, `POST /leads` (the AI calls the lead back)
+  - `GET /events`, `GET /webhook-events`
+- **Conventions:** lists return `{ data, nextBefore }`, and you pass `?before=` for the next page. The limit is 600 requests per minute per key. Errors look like `{ "error": "…" }`.
+- **Webhooks:** **Super Admin → Webhooks** sends events to any public `https://` URL, optionally for a single company only.
+  - **Events:** `company.installed`, `company.uninstalled`, `company.status_changed`, `account.deployed`, `account.deploy_failed`, `account.removed`, `account.crm_connected`, `call.started`, `call.ended`, `call.graded`, `call.alert`, `call.takeover`, `lead.received`, `lead.called`, `lead.finished`, `sms.sent`.
+  - **Body:** `{ id, type, createdAt, companyId, data }`. `data` includes the related call, lead, account or company.
+  - **Signature:** `X-ACC-Signature: t=<unix>,v1=<hex HMAC-SHA256(secret, t + "." + body)>`. The verification code is in the Webhooks tab.
+  - **Retries:** failed deliveries retry after 1 min, 5 min, 30 min, 2 h and 12 h.
+
 ## Deploy (Vercel + MongoDB Atlas)
 
 1. Create an Atlas cluster and allow Vercel's network (`0.0.0.0/0` or the Vercel integration).

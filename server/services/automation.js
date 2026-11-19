@@ -127,7 +127,7 @@ function createAutomation(ctx) {
       nextAt: new Date(inWindow(o, tz) ? Date.now() : (nextOpen(o, tz) || Date.now() + 86400e3)).toISOString()
     };
     await store.put('leads', lead);
-    await store.log(dep.companyId, 'lead.received', (name || phone) + (lead.nextAt > now() ? ' (queued until ' + lead.nextAt + ')' : ''), { locationId: dep._id });
+    await store.log(dep.companyId, 'lead.received', (name || phone) + (lead.nextAt > now() ? ' (queued until ' + lead.nextAt + ')' : ''), { locationId: dep._id, leadId: lead._id });
     return { status: 202, lead, callNow: Date.parse(lead.nextAt) <= Date.now() };
   }
 
@@ -171,7 +171,7 @@ function createAutomation(ctx) {
         metadata: { leadId, locationId: dep._id, companyId: dep.companyId }
       });
       await store.patch('leads', leadId, {}, { push: { callIds: call.id } });
-      await store.log(dep.companyId, 'lead.called', (lead.name || lead.phone) + ' (attempt ' + claimed.attempts + ')', { locationId: dep._id, callId: call.id });
+      await store.log(dep.companyId, 'lead.called', (lead.name || lead.phone) + ' (attempt ' + claimed.attempts + ')', { locationId: dep._id, callId: call.id, leadId });
       return call;
     } catch (e) {
       const retry = claimed.attempts < dep.outbound.maxAttempts;
@@ -195,6 +195,7 @@ function createAutomation(ctx) {
       await store.patch('leads', lead._id, { status: 'queued', nextAt: new Date(at).toISOString(), reason: 'No answer, retrying' });
     } else {
       await store.patch('leads', lead._id, { status: unanswered ? 'unreached' : 'connected', finishedAt: now(), callId: call._id, reason: call.endedReason || '' });
+      await store.log(lead.companyId, 'lead.finished', (lead.name || lead.phone) + ': ' + (unanswered ? 'not reached' : 'connected'), { locationId: lead.locationId, leadId: lead._id, callId: call._id });
     }
   }
 
@@ -257,7 +258,8 @@ function createAutomation(ctx) {
 
   async function raise(callId, kind, text) {
     const alert = { id: randomToken(6), kind, text: String(text).slice(0, 200), at: now() };
-    await store.patch('calls', callId, { alerted: true }, { push: { alerts: { each: [alert], slice: -20 } }, inc: { seq: 1 } });
+    const c = await store.patch('calls', callId, { alerted: true }, { push: { alerts: { each: [alert], slice: -20 } }, inc: { seq: 1 } });
+    if (c) await store.log(c.companyId, 'call.alert', alert.text, { locationId: c.locationId, callId });
     return alert;
   }
 

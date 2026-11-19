@@ -265,5 +265,5 @@ test('cron sweep requires the secret and retries queued syncs', async (t) => {
   let r = await fetch(env.base + '/api/cron/sweep');
   assert.equal(r.status, 401);
   r = await fetch(env.base + '/api/cron/sweep', { headers: { authorization: 'Bearer cron' } });
-  assert.deepEqual(await r.json(), { stale: 0, synced: 0, leads: 0 });
+  assert.deepEqual(await r.json(), { stale: 0, synced: 0, leads: 0, webhooks: 0 });
 });

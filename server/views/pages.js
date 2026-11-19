@@ -72,6 +72,7 @@ const adminLogin = (req) => page(req, {
 });
 
 const admin = (req) => page(req, {
+  mainClass: 'shell',
   title: 'Super Admin', nav: '<button class="link" data-logout="/api/admin/logout">Sign out</button>',
   body: '<div id="admin"><div class="spinner"></div></div>', scripts: ['/static/admin.js']
 });

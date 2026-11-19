@@ -52,7 +52,8 @@ module.exports = function (app, ctx) {
     const https = /^https:\/\//.test(cfg.baseUrl) && !/localhost|127\.0\.0\.1/.test(cfg.baseUrl);
     const checks = [
       ['Public HTTPS URL (BASE_URL)', https, https ? cfg.baseUrl : 'Set BASE_URL to your public https domain. Cookies inside the CRM iframe need HTTPS.'],
-      ['Webhook signature keys', !!(g.webhookEd25519Key || g.webhookRsaKey), g.webhookEd25519Key || g.webhookRsaKey ? 'Set' : 'Optional. Without them, uninstalls are confirmed by checking the token.'],
+      // Optional: never shown as a problem.
+      ['Webhook signature keys (optional)', true, g.webhookEd25519Key || g.webhookRsaKey ? 'Set' : 'Not set. Uninstalls are confirmed by checking the token instead.'],
       ['Database', ctx.store.kind === 'mongo', ctx.store.kind === 'mongo' ? 'MongoDB' : 'Local file (development only). Set AI_CALL_CENTER_PLUS_MONGODB_URI.'],
       ['Separate ENCRYPTION_KEY', !!process.env.ENCRYPTION_KEY && process.env.ENCRYPTION_KEY !== cfg.sessionSecret, 'Use a different value from SESSION_SECRET and never change it after launch.'],
       ['Cron secret (CRON_SECRET)', !!cfg.cronSecret, cfg.cronSecret ? 'Set' : 'Needed for CRM sync retries and speed-to-lead retries.']
