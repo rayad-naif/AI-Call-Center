@@ -121,7 +121,7 @@ The app is a sub-account app that an agency can install for its sub-accounts. Bo
 ## Deploy (Vercel + MongoDB Atlas)
 
 1. Create an Atlas cluster and allow Vercel's network (`0.0.0.0/0` or the Vercel integration).
-2. Import this repo into Vercel and set the environment variables from `.env.example`. These are required: `BASE_URL`, `MONGODB_URI`, `MONGODB_DB`, `GHL_CLIENT_ID`, `GHL_CLIENT_SECRET`, `GHL_SSO_KEY`, `ADMIN_PASSWORD`, `SESSION_SECRET`, `ENCRYPTION_KEY`, `CRON_SECRET`.
+2. Import this repo into Vercel and set the environment variables from `.env.example`. These are required: `BASE_URL`, `AI_CALL_CENTER_PLUS_MONGODB_URI` (added automatically by Vercel's MongoDB Atlas integration; a plain `MONGODB_URI` also works), `MONGODB_DB`, `GHL_CLIENT_ID`, `GHL_CLIENT_SECRET`, `GHL_SSO_KEY`, `ADMIN_PASSWORD`, `SESSION_SECRET`, `ENCRYPTION_KEY`, `CRON_SECRET`.
 3. Add your domain. `vercel.json` routes everything to `api/index.js` and has one daily cron. That fits Vercel's free Hobby plan, which allows only daily crons.
 4. Optional: to attach agencies' custom domains automatically, set `VERCEL_API_TOKEN` and `VERCEL_PROJECT_ID`. Without them, add each domain in Vercel yourself after the agency verifies its CNAME.
 5. Run `npm run db:init` once, or let the indexes create themselves on first use.
@@ -158,7 +158,7 @@ npm start
 npm test
 ```
 
-With `MONGODB_URI` empty, data goes to `./data/store.json`. To run the tests against MongoDB as well, set `TEST_MONGODB_URI`.
+Without a MongoDB URI, data goes to `./data/store.json`. To run the tests against MongoDB as well, set `TEST_MONGODB_URI`.
 
 ### Code map
 

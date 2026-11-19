@@ -5,7 +5,7 @@ const { createMongoStore } = require('../server/store/mongo');
 
 (async () => {
   const cfg = config.load();
-  if (!cfg.mongoUri) { console.error('Set MONGODB_URI first'); process.exit(1); }
+  if (!cfg.mongoUri) { console.error('Set AI_CALL_CENTER_PLUS_MONGODB_URI (or MONGODB_URI) first'); process.exit(1); }
   const store = createMongoStore(cfg.mongoUri, cfg.mongoDb);
   await store.ensureIndexes();
   await store.close();

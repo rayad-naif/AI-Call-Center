@@ -52,7 +52,7 @@ module.exports = function (app, ctx) {
       ['Client Secret (GHL_CLIENT_SECRET)', !!g.clientSecret, g.clientSecret ? 'Set' : 'Shown once when you create the client key.'],
       ['SSO key (GHL_SSO_KEY)', !!g.ssoKey, g.ssoKey ? 'Set' : 'Generate it in Advanced Settings > Auth > SSO. Needed for the sidebar page.'],
       ['Webhook signature keys', !!(g.webhookEd25519Key || g.webhookRsaKey), g.webhookEd25519Key || g.webhookRsaKey ? 'Set' : 'Optional. Without them, uninstalls are confirmed by checking the token.'],
-      ['Database', ctx.store.kind === 'mongo', ctx.store.kind === 'mongo' ? 'MongoDB' : 'Local file (development only). Set MONGODB_URI.'],
+      ['Database', ctx.store.kind === 'mongo', ctx.store.kind === 'mongo' ? 'MongoDB' : 'Local file (development only). Set AI_CALL_CENTER_PLUS_MONGODB_URI.'],
       ['Separate ENCRYPTION_KEY', !!process.env.ENCRYPTION_KEY && process.env.ENCRYPTION_KEY !== cfg.sessionSecret, 'Use a different value from SESSION_SECRET and never change it after launch.'],
       ['Cron secret (CRON_SECRET)', !!cfg.cronSecret, cfg.cronSecret ? 'Set' : 'Needed for CRM sync retries and speed-to-lead retries.']
     ].map(([name, ok, detail]) => ({ name, ok, detail }));
