@@ -20,6 +20,20 @@ module.exports = function (app, ctx) {
     const code = String(req.query.code || '');
     if (!code) return res.status(400).type('html').send(views.message(req, 'Install cancelled', 'HighLevel did not send an authorization code.'));
     const t = await ghl.exchangeCode(code);
+
+    // Sub-account install: remember it; the agency deploys from its console.
+    if (t.userType === 'Location') {
+      await store.put('locationInstalls', { _id: t.locationId, companyId: t.companyId, installed: true, installedAt: new Date().toISOString() });
+      await store.log(t.companyId, 'app.location_installed', t.locationId, { locationId: t.locationId });
+      const ag = await store.get('agencies', t.companyId);
+      if (!ag || !ag.installed) {
+        return res.type('html').send(views.message(req, 'One more step', 'The app was added to this sub-account, but your agency has not installed it yet. An agency admin needs to install it from the HighLevel Marketplace at agency level (Agency view), then deploy the call center for this sub-account.'));
+      }
+      const dep = await store.get('deployments', t.locationId);
+      return res.type('html').send(views.message(req, 'Installed for this sub-account',
+        dep && dep.status === 'live' ? 'Your AI call center is live. Open it from this sub-account\'s left menu.' : 'Your agency can now deploy the AI call center to this sub-account from its console. Once it is live, open it from the left menu.'));
+    }
+
     let company = {};
     try { company = await ghl.api(t.access_token).getCompany(t.companyId); } catch (e) { /* name is optional */ }
     const existing = await store.get('agencies', t.companyId);
@@ -112,8 +126,9 @@ module.exports = function (app, ctx) {
     if (!agency || !agency.installed) return res.status(403).json({ error: 'Your agency has not installed this app yet.', install: '/install' });
     if (agency.status === 'suspended') return res.status(403).json({ error: 'This license is suspended.' });
 
-    const locationId = u.activeLocation || '';
-    const base = { uid: 'ghl:' + u.userId, companyId: u.companyId, name: u.userName || '', email: (u.email || '').toLowerCase() };
+    // Field names differ slightly between HighLevel versions; accept both.
+    const locationId = u.activeLocation || u.locationId || '';
+    const base = { uid: 'ghl:' + u.userId, companyId: u.companyId, name: u.userName || u.name || '', email: (u.email || '').toLowerCase() };
     if (locationId) {
       // Inside a sub-account: the client view of that location only.
       const dep = await store.get('deployments', locationId);
@@ -124,8 +139,8 @@ module.exports = function (app, ctx) {
       auth.setSession(res, Object.assign(base, { kind: 'client', role, locationIds: [locationId], locationId }));
       return res.json({ ok: true, redirect: '/deck' });
     }
-    if (u.type !== 'agency') return res.status(403).json({ error: 'Open this page from a sub-account.' });
-    const role = u.role === 'admin' ? 'admin' : 'manager';
+    if (u.type && u.type !== 'agency') return res.status(403).json({ error: 'Open this page from a sub-account.' });
+    const role = u.role === 'admin' || u.isAgencyOwner ? 'admin' : 'manager';
     auth.setSession(res, Object.assign(base, { kind: 'agency', role }));
     res.json({ ok: true, redirect: role === 'admin' ? '/app' : '/deck' });
   }));

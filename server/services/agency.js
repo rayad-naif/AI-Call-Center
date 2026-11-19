@@ -46,7 +46,23 @@ function createAgencyService(ctx) {
     if (access && t.expiresAt && Date.now() < t.expiresAt - 120e3) return access;
     const refreshToken = sec.decrypt(t.refreshToken);
     if (!refreshToken) throw new Error('HighLevel is not connected for this agency. Reinstall the app.');
-    const r = await ghl.refresh(refreshToken);
+    let r;
+    try {
+      r = await ghl.refresh(refreshToken);
+    } catch (e) {
+      // HighLevel refresh tokens are single-use. If a parallel request (another
+      // serverless instance) refreshed first, use the token it saved.
+      const fresh = await store.get('agencies', agency._id);
+      const ft = (fresh && fresh.ghl) || {};
+      if (ft.refreshToken !== t.refreshToken && sec.decrypt(ft.accessToken) && ft.expiresAt > Date.now() + 60e3) {
+        agency.ghl = ft;
+        return sec.decrypt(ft.accessToken);
+      }
+      if (e.status === 400 || e.status === 401) {
+        throw Object.assign(new Error('HighLevel access was revoked or expired. Reinstall the app from the Marketplace to reconnect.'), { status: 409 });
+      }
+      throw e;
+    }
     const ghlDoc = {
       accessToken: sec.encrypt(r.access_token),
       refreshToken: sec.encrypt(r.refresh_token || refreshToken),
@@ -71,7 +87,16 @@ function createAgencyService(ctx) {
       if (m && m.expiresAt > Date.now() + 120e3) token = m.token;
     }
     if (!token) {
-      const r = await ghl.locationToken(await agencyToken(agency), agency._id, locationId);
+      const agencyAccess = await agencyToken(agency);
+      let r;
+      try {
+        r = await ghl.locationToken(agencyAccess, agency._id, locationId);
+      } catch (e) {
+        if (e.status >= 400 && e.status < 500) {
+          throw Object.assign(new Error('The app is not installed in this sub-account yet. In HighLevel, open the app in the Marketplace and install it to this sub-account (or enable it for all sub-accounts), then try again.'), { status: 409, provider: 'HighLevel' });
+        }
+        throw e;
+      }
       token = r.access_token;
       const expiresAt = Date.now() + (Number(r.expires_in) || 86399) * 1000;
       memo.set(locationId, { token, expiresAt });

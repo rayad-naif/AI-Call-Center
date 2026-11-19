@@ -7,7 +7,7 @@ function createFakes() {
   const state = {
     vapi: { assistants: {}, squads: {}, numbers: {}, credentials: [], controls: [], calls: [] },
     twilio: { subaccounts: {}, numbers: {}, keys: 0, apps: 0 },
-    ghl: { fields: [], contacts: {}, notes: [], opportunities: [], appointments: [], tags: [], sms: [], dnd: {} },
+    ghl: { fields: [], contacts: {}, notes: [], opportunities: [], appointments: [], tags: [], sms: [], dnd: {}, usedRefresh: new Set(), refreshes: 0, nextInstall: 'Company', blockLocationToken: new Set() },
     openaiCalls: 0
   };
   let id = 0;
@@ -78,8 +78,18 @@ function createFakes() {
     if (u.host === 'services.leadconnectorhq.com') {
       let m;
       if (p === '/oauth/token') {
+        if (body.client_secret !== 'secret') return json(401, { error: 'invalid_client', error_description: 'Invalid client' });
+        if (body.grant_type === 'refresh_token') {
+          if (state.ghl.usedRefresh.has(body.refresh_token) || body.refresh_token === 'acc-credential-check') return json(400, { error: 'invalid_grant', error_description: 'Invalid refresh token' });
+          state.ghl.usedRefresh.add(body.refresh_token);
+          state.ghl.refreshes++;
+          return json(200, { access_token: 'agency-at-' + state.ghl.refreshes, refresh_token: 'agency-rt-' + state.ghl.refreshes, expires_in: 86399, userType: 'Company', companyId: 'comp1' });
+        }
+        if (state.ghl.nextInstall === 'Location') return json(200, { access_token: 'loc-at', refresh_token: 'loc-rt', expires_in: 86399, userType: 'Location', companyId: 'comp1', locationId: 'loc2bbbbbbbb', userId: 'user1' });
         return json(200, { access_token: 'agency-at', refresh_token: 'agency-rt', expires_in: 86399, userType: 'Company', companyId: 'comp1', userId: 'user1', scope: 'x' });
       }
+      if (p === '/oauth/installedLocations') return json(200, { locations: [{ _id: 'loc1aaaaaaaa', name: 'Bob Plumbing', isInstalled: true }], count: 1 });
+      if (p === '/oauth/locationToken' && state.ghl.blockLocationToken.has(body.locationId)) return json(400, { message: 'App not installed for this location' });
       if (p === '/oauth/locationToken') return json(200, { access_token: 'loc-at-' + body.locationId, expires_in: 86399 });
       if (p === '/companies/comp1') return json(200, { company: { name: 'Acme Agency' } });
       if (p === '/locations/search') return json(200, { locations: [{ id: 'loc1aaaaaaaa', name: 'Bob Plumbing' }, { id: 'loc2bbbbbbbb', name: 'Other Co' }] });

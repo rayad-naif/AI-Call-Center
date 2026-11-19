@@ -87,8 +87,12 @@ module.exports = function (app, ctx) {
     const companyId = b.companyId;
     if (!companyId || !/^(INSTALL|UNINSTALL)$/.test(b.type || '')) return res.json({ ignored: true });
     if (b.appId && cfg.ghl.clientId && !cfg.ghl.clientId.startsWith(b.appId)) return res.json({ ignored: true });
-    // Location-level events (a sub-account toggling the app) do not change the agency license.
-    if (b.locationId && b.installType !== 'Company') return res.json({ ignored: true });
+    // Sub-account level events: track which sub-accounts have the app; the agency license is unchanged.
+    if (b.locationId && b.installType !== 'Company') {
+      await store.put('locationInstalls', { _id: b.locationId, companyId, installed: b.type === 'INSTALL', installedAt: new Date().toISOString() });
+      await store.log(companyId, b.type === 'INSTALL' ? 'app.location_installed' : 'app.location_uninstalled', b.locationId, { locationId: b.locationId });
+      return res.json({ ok: true });
+    }
     const agency = await store.get('agencies', companyId);
     if (!agency) return res.json({ ok: true });
 

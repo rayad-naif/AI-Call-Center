@@ -63,7 +63,9 @@ function load(env) {
       apiVersion: env.GHL_API_VERSION || '2021-07-28',
       webhookEd25519Key: env.GHL_WEBHOOK_ED25519_KEY || '',
       webhookRsaKey: env.GHL_WEBHOOK_RSA_KEY || '',
-      ssoKey: env.GHL_SSO_KEY || ''
+      ssoKey: env.GHL_SSO_KEY || '',
+      // Marketplace app id: the part of the client id before the first "-" unless set.
+      appId: env.GHL_APP_ID || String(env.GHL_CLIENT_ID || '').split('-')[0]
     },
     twilio: { apiBase: (env.TWILIO_API_BASE || 'https://api.twilio.com').replace(/\/+$/, '') },
     vapi: { apiBase: (env.VAPI_API_BASE || 'https://api.vapi.ai').replace(/\/+$/, '') },

@@ -118,7 +118,7 @@
         const tb = h('tbody');
         r.locations.filter((l) => !term || (l.name || '').toLowerCase().includes(term)).forEach((l) => tb.append(h('tr',
           h('td', h('strong', l.name), h('div.muted.small', [l.city, l.state].filter(Boolean).join(', '))),
-          h('td', badge(l.status)), h('td', l.phoneNumber || '—'),
+          h('td', badge(l.status), l.appInstalled === false ? h('div.small.warn', 'App not installed in this sub-account yet') : null), h('td', l.phoneNumber || '—'),
           h('td.right', h('a.btn.small' + (l.status === 'none' ? '.primary' : ''), { href: '#clients/' + encodeURIComponent(l.id) }, l.status === 'none' ? 'Set up' : 'Manage')))));
         table.append(tb);
       };

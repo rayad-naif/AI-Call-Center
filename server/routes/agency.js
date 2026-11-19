@@ -96,10 +96,19 @@ module.exports = function (app, ctx) {
     }
     const deps = await store.find('deployments', { companyId: req.agency._id });
     const byId = new Map(deps.map((d) => [d._id, d]));
+    // Which sub-accounts have the app installed (needed for location tokens).
+    let installed = null;
+    if (cfg.ghl.appId) {
+      try { installed = new Set((await api.installedLocations(req.agency._id, cfg.ghl.appId)).map((l) => l._id || l.id)); } catch (e) { installed = null; }
+    }
+    const tracked = new Map((await store.find('locationInstalls', { companyId: req.agency._id })).map((x) => [x._id, x.installed]));
     res.json({
+      installCheck: installed !== null,
       locations: locs.map((l) => {
-        const d = byId.get(l.id || l._id);
-        return { id: l.id || l._id, name: l.name, city: l.city || '', state: l.state || '', timezone: l.timezone || '', status: d ? d.status : 'none', phoneNumber: d && d.twilio ? d.twilio.phoneNumber || '' : '' };
+        const id = l.id || l._id;
+        const d = byId.get(id);
+        const appInstalled = installed ? installed.has(id) : (tracked.has(id) ? tracked.get(id) : null);
+        return { id, name: l.name, city: l.city || '', state: l.state || '', timezone: l.timezone || '', status: d ? d.status : 'none', phoneNumber: d && d.twilio ? d.twilio.phoneNumber || '' : '', appInstalled };
       }).sort((x, y) => (x.status === 'none') - (y.status === 'none') || String(x.name).localeCompare(String(y.name)))
     });
   }));

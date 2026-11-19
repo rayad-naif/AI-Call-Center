@@ -42,5 +42,46 @@ module.exports = function (app, ctx) {
     res.json({ ok: true });
   }));
 
+  /* Setup check: is the HighLevel app configuration ready? */
+  app.get('/api/admin/setup', guard, h(async (req, res) => {
+    const g = cfg.ghl;
+    const https = /^https:\/\//.test(cfg.baseUrl) && !/localhost|127\.0\.0\.1/.test(cfg.baseUrl);
+    const checks = [
+      ['Public HTTPS URL (BASE_URL)', https, https ? cfg.baseUrl : 'Set BASE_URL to your public https domain. Cookies inside the HighLevel iframe need HTTPS.'],
+      ['Client ID (GHL_CLIENT_ID)', !!g.clientId, g.clientId ? 'App id: ' + (g.appId || '?') : 'Copy it from your app > Advanced Settings > Auth > Client Keys.'],
+      ['Client Secret (GHL_CLIENT_SECRET)', !!g.clientSecret, g.clientSecret ? 'Set' : 'Shown once when you create the client key.'],
+      ['SSO key (GHL_SSO_KEY)', !!g.ssoKey, g.ssoKey ? 'Set' : 'Generate it in Advanced Settings > Auth > SSO. Needed for the sidebar page.'],
+      ['Webhook signature keys', !!(g.webhookEd25519Key || g.webhookRsaKey), g.webhookEd25519Key || g.webhookRsaKey ? 'Set' : 'Optional. Without them, uninstalls are confirmed by checking the token.'],
+      ['Database', ctx.store.kind === 'mongo', ctx.store.kind === 'mongo' ? 'MongoDB' : 'Local file (development only). Set MONGODB_URI.'],
+      ['Separate ENCRYPTION_KEY', !!process.env.ENCRYPTION_KEY && process.env.ENCRYPTION_KEY !== cfg.sessionSecret, 'Use a different value from SESSION_SECRET and never change it after launch.'],
+      ['Cron secret (CRON_SECRET)', !!cfg.cronSecret, cfg.cronSecret ? 'Set' : 'Needed for CRM sync retries and speed-to-lead retries.']
+    ].map(([name, ok, detail]) => ({ name, ok, detail }));
+    res.json({
+      checks,
+      paste: {
+        'Redirect URL': cfg.redirectUri,
+        'Webhook URL (events: INSTALL, UNINSTALL)': cfg.baseUrl + '/webhooks/ghl',
+        'Custom page URL (sidebar, agency + sub-account)': cfg.baseUrl + '/embed',
+        'Scopes': g.scopes,
+        'Install link': cfg.baseUrl + '/install'
+      }
+    });
+  }));
+
+  // Proves the client id/secret pair without an install: HighLevel answers a
+  // fake refresh token with invalid_grant when the client is valid.
+  app.post('/api/admin/setup/test', csrf, guard, h(async (req, res) => {
+    if (!cfg.ghl.clientId || !cfg.ghl.clientSecret) return res.json({ ok: false, detail: 'Client ID and secret are not set' });
+    try {
+      await ctx.ghl.refresh('acc-credential-check');
+      res.json({ ok: true, detail: 'Unexpected success' });
+    } catch (e) {
+      const text = JSON.stringify(e.body || e.message).toLowerCase();
+      if (/invalid_client|client.*(not found|invalid)|unauthorized_client/.test(text)) return res.json({ ok: false, detail: 'HighLevel rejected the Client ID / Client Secret: ' + e.message });
+      if (/invalid_grant|refresh.?token/.test(text)) return res.json({ ok: true, detail: 'Client ID and Client Secret are valid.' });
+      res.json({ ok: false, detail: 'Could not verify: ' + e.message });
+    }
+  }));
+
   app.get('/api/admin/events', guard, h(async (req, res) => res.json({ events: await store.events({}, 200) })));
 };

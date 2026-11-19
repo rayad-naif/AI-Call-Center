@@ -25,10 +25,12 @@ function createGhl(cfg, fetchImpl) {
     body: new URLSearchParams(Object.assign({ client_id: g.clientId, client_secret: g.clientSecret, user_type: 'Company' }, params)).toString()
   });
 
+  /* Returns the token as-is. userType is "Company" for an agency install and
+     "Location" when the app is installed into a single sub-account. */
   async function exchangeCode(code) {
     const t = await tokenRequest({ grant_type: 'authorization_code', code, redirect_uri: cfg.redirectUri });
-    if (!t || t.userType !== 'Company' || !t.companyId) {
-      throw new ApiError('HighLevel', 'This app must be installed by an agency (got a ' + ((t && t.userType) || 'unknown') + ' level token).', 400, t);
+    if (!t || !t.access_token || !t.companyId || !/^(Company|Location)$/.test(t.userType || '')) {
+      throw new ApiError('HighLevel', 'Unexpected install token (' + ((t && t.userType) || 'unknown') + ').', 400, t);
     }
     return t;
   }
@@ -59,6 +61,17 @@ function createGhl(cfg, fetchImpl) {
       // Agency token
       getCompany: async (companyId) => { const j = await call('GET', '/companies/' + encodeURIComponent(companyId)); return (j && j.company) || j; },
       searchLocations: async (companyId, skip) => ((await call('GET', '/locations/search', null, { companyId, limit: 100, skip: skip || 0 })) || {}).locations || [],
+      // Sub-accounts where this app is installed (agency token, oauth.readonly).
+      installedLocations: async (companyId, appId) => {
+        const out = [];
+        for (let skip = 0; skip < 5000; skip += 100) {
+          const j = await call('GET', '/oauth/installedLocations', null, { companyId, appId, isInstalled: true, limit: 100, skip });
+          const page = (j && j.locations) || [];
+          out.push(...page);
+          if (page.length < 100) break;
+        }
+        return out;
+      },
       getLocation: async (locationId) => { const j = await call('GET', '/locations/' + encodeURIComponent(locationId)); return (j && j.location) || j; },
       // Location token
       listCustomFields: async (locationId) => ((await call('GET', '/locations/' + encodeURIComponent(locationId) + '/customFields', null, { model: 'contact' })) || {}).customFields || [],

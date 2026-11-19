@@ -86,15 +86,29 @@ HighLevel's API cannot create pipelines, so put a voice pipeline in your snapsho
 - **Support** looks the caller up (`lookup_customer`), answers from the FAQ, and logs a ticket (`create_support_ticket` → contact note and tags).
 - All three can transfer to a human (Vapi `transferCall`) when a transfer number is set.
 
-## HighLevel app settings
+## HighLevel app settings (step by step)
 
-- Target user: **Agency**. Distribution: agency and sub-accounts.
-- Redirect URL: `${BASE_URL}/oauth/callback`
-- Webhook URL: `${BASE_URL}/webhooks/ghl` with INSTALL and UNINSTALL events
-- SSO: generate the Shared Secret and set `GHL_SSO_KEY`. Add a custom page (or custom menu link for sub-accounts) pointing to `${BASE_URL}/embed`.
-- Scopes (the default `GHL_SCOPES`):
-  `companies.readonly locations.readonly oauth.readonly oauth.write contacts.readonly contacts.write opportunities.readonly opportunities.write calendars.readonly calendars/events.readonly calendars/events.write locations/customFields.readonly locations/customFields.write users.readonly conversations.readonly conversations/message.write`
-- Pricing: a one-time install fee through Marketplace billing. `NEW_INSTALL_STATUS=pending` lets you approve each agency manually in Super Admin instead.
+Do this in the HighLevel Marketplace developer portal, in your app's settings. After deploying, **Super Admin → HighLevel app setup** shows every URL to paste, flags missing settings, and has a **Test Client ID / Secret** button that checks the pair with HighLevel.
+
+1. **Basic info:** Target User **Agency**. Distribution: **Agency and Sub-account**, so the sidebar page appears in both.
+2. **Auth → Scopes:** add every scope below (the default `GHL_SCOPES`):
+   `companies.readonly locations.readonly oauth.readonly oauth.write contacts.readonly contacts.write opportunities.readonly opportunities.write calendars.readonly calendars/events.readonly calendars/events.write locations/customFields.readonly locations/customFields.write users.readonly conversations.readonly conversations/message.write`
+3. **Auth → Redirect URL:** `${BASE_URL}/oauth/callback`
+4. **Auth → Client Keys:** create a key. Put the Client ID in `GHL_CLIENT_ID` and the Client Secret in `GHL_CLIENT_SECRET` (the secret is shown only once). The app id is read from the part of the Client ID before the first "-". Set `GHL_APP_ID` only if yours differs.
+5. **Auth → SSO:** generate the SSO key and put it in `GHL_SSO_KEY`.
+6. **Webhooks:** URL `${BASE_URL}/webhooks/ghl`, events **INSTALL** and **UNINSTALL**. Optionally add HighLevel's webhook public key to `GHL_WEBHOOK_ED25519_KEY`.
+7. **Modules → Custom Page:** URL `${BASE_URL}/embed`. HighLevel opens it in the left sidebar and the app signs the user in with SSO:
+   - an agency admin in Agency view gets the agency console;
+   - other agency users get the Command Deck;
+   - anyone inside a sub-account gets that sub-account's deck only (once it is deployed).
+8. **Pricing:** a one-time install fee through Marketplace billing. `NEW_INSTALL_STATUS=pending` lets you approve each agency manually in Super Admin instead.
+
+### How installs work
+
+- **Agency install** (an Agency-level token): creates the agency license and sends the installer to create the owner login. This is the install that's required.
+- **Sub-account installs** (Location-level tokens, or INSTALL/UNINSTALL webhooks with a `locationId`): recorded per sub-account. HighLevel only issues the location tokens that deployment needs for sub-accounts where the app is installed. The Clients list therefore shows "App not installed in this sub-account yet" where needed, from HighLevel's installed-locations API. Deploying there anyway returns that same clear message instead of an API error.
+- **Token refresh:** HighLevel refresh tokens are single-use. When two requests refresh at once, the second reuses the token the first saved. A revoked token shows "Reinstall the app" instead of failing silently.
+- **Iframe sign-in:** session cookies are `SameSite=None; Secure; Partitioned`, so `BASE_URL` must be HTTPS. Pages are never blocked from framing, because white-label CRM domains vary.
 
 ## Deploy (Vercel + MongoDB Atlas)
 
