@@ -147,7 +147,13 @@ module.exports = function (app, ctx) {
 
   /* HighLevel custom page. The page asks its parent frame for the encrypted
      user context (REQUEST_USER_DATA) and posts it here. */
-  app.get('/embed', (req, res) => res.type('html').send(views.embed(req)));
+  // Already signed in (same as opening /app): go straight in, no CRM handshake.
+  // ?sso=1 forces a fresh CRM sign-in (e.g. to switch user or account).
+  app.get('/embed', (req, res) => {
+    const s = req.session;
+    if (s && req.query.sso !== '1') return res.redirect(s.kind === 'agency' && ctx.auth.can(s, 'admin') ? '/app' : '/deck');
+    res.type('html').send(views.embed(req));
+  });
 
   app.post('/api/auth/sso', csrf, h(async (req, res) => {
     // Either app can open the sidebar page; try each app's SSO key.
@@ -156,7 +162,11 @@ module.exports = function (app, ctx) {
     if (!ctx.limits.login('sso:' + req.ip)) return res.status(429).json({ error: 'Too many attempts' });
     let u = null;
     for (const k of keys) { u = decryptGhlSso(req.body.payload, k); if (u) break; }
-    if (!u || !u.userId || !u.companyId) return res.status(401).json({ error: 'Sign-in failed. Reload the page.' });
+    if (!u || !u.userId || !u.companyId) {
+      // Usually the SSO key in the env vars does not match the app's key. Visible in Super Admin > Activity.
+      await store.log(null, 'sso.failed', 'Could not decrypt the CRM user data: check GHL_SSO_KEY / GHL_AGENCY_SSO_KEY match the apps\' SSO keys');
+      return res.status(401).json({ error: 'Sign-in failed (code SSO-KEY). Reload the page, or sign in with email.', code: 'sso_key' });
+    }
     // Field names differ slightly between HighLevel versions; accept both.
     const locationId = u.activeLocation || u.locationId || '';
     const base = { uid: 'ghl:' + u.userId, name: u.userName || u.name || '', email: (u.email || '').toLowerCase() };

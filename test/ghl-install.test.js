@@ -196,7 +196,7 @@ test('white-label: clients never see platform names or "agency"', async (t) => {
   // Sub-account user via the CRM sidebar.
   const sub = client(env.base);
   let r = await sub.req('POST', '/api/auth/sso', { payload: encryptGhlSso({ userId: 'u1', companyId: 'comp1', type: 'location', role: 'admin', activeLocation: 'loc1aaaaaaaa' }, 'sso-key') });
-  for (const p of ['/deck', '/report', '/embed']) {
+  for (const p of ['/deck', '/report', '/embed?sso=1']) {
     r = await sub.req('GET', p);
     assert.equal(r.status, 200, p);
     assert.ok(!bad.test(r.text.replace(/<script[\s\S]*?<\/script>/g, '')), p + ' leaks a platform name: ' + (r.text.match(bad) || [])[0]);
@@ -219,4 +219,22 @@ test('white-label: clients never see platform names or "agency"', async (t) => {
   assert.ok(!bad.test(r.body), 'custom-domain login leaks: ' + (r.body.match(bad) || [])[0]);
   assert.match(r.body, /Acme Voice/);
   for (const p of ['/docs', '/privacy', '/terms']) assert.equal((await rawRequest(env.base, 'GET', p, { host: 'calls.acme.com' })).status, 302, p);
+});
+
+test('/embed: signed-in users go straight in; bad SSO key is logged for the admin', async (t) => {
+  const env = await setup();
+  t.after(() => env.server.close());
+  const c = client(env.base);
+  let r = await c.req('GET', '/embed');
+  assert.equal(r.status, 200, 'no session: the sign-in handshake page');
+  r = await c.req('GET', '/oauth/callback?code=abc');
+  await c.req('POST', '/api/auth/setup', { t: decodeURIComponent(r.location.split('t=')[1]), email: 'o@acme.com', password: 'longpassword1' });
+  r = await c.req('GET', '/embed');
+  assert.equal(r.location, '/app', 'session: same as opening /app');
+  r = await c.req('GET', '/embed?sso=1');
+  assert.equal(r.status, 200, '?sso=1 forces the CRM handshake');
+  r = await client(env.base).req('POST', '/api/auth/sso', { payload: encryptGhlSso({ userId: 'u', companyId: 'comp1' }, 'not-the-key') });
+  assert.equal(r.json.code, 'sso_key');
+  const ev = await env.ctx.store.events({ type: 'sso.failed' }, 5);
+  assert.equal(ev.length, 1);
 });

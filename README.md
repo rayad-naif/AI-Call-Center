@@ -112,7 +112,7 @@ You can publish either app alone or both. After deploying, **Super Admin** shows
 4. **Auth → Client Keys:** create a key. Put the Client ID in `GHL_CLIENT_ID` and the Client Secret in `GHL_CLIENT_SECRET` (the secret is shown only once). The app id is read from the part of the Client ID before the first "-". Set `GHL_APP_ID` only if yours differs.
 5. **Auth → SSO:** generate the SSO key and put it in `GHL_SSO_KEY`.
 6. **Webhooks:** URL `${BASE_URL}/webhooks/crm`, events **INSTALL** and **UNINSTALL**. Optionally add HighLevel's webhook public key to `GHL_WEBHOOK_ED25519_KEY`.
-7. **Modules → Custom Page:** URL `${BASE_URL}/embed`. HighLevel opens it in the left sidebar and the app signs the user in with SSO:
+7. **Modules → Custom Page:** URL `${BASE_URL}/embed`. Use the app's **Custom Page** module, not a custom menu link: only Custom Pages receive the CRM's sign-in data. A user who is already signed in goes straight to `/app` or `/deck`. If the CRM sends no sign-in data, the page offers email sign-in instead. A wrong SSO key shows as `sso.failed` in Super Admin → Activity. HighLevel opens it in the left sidebar and the app signs the user in with SSO:
    - an agency admin in Agency view gets the agency console;
    - other agency users get the Command Deck;
    - anyone inside a sub-account gets that sub-account's deck only (once it is deployed).
