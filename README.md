@@ -35,7 +35,7 @@ Open http://localhost:3000/login and sign in as `demo@example.com` with password
 3. In the client's HighLevel workflow (for example, trigger "Form submitted"), add the action **Custom Webhook**, method POST, with that URL. HighLevel sends the contact's phone, name and id automatically. Add custom data `interest` (for example "{{contact.service}}") to tell the AI what the lead asked about.
 4. Use **Test speed-to-lead** to have the agent call your own phone.
 
-Leads that arrive outside calling hours wait for the next opening. Retries and queued leads are placed by the sweep, which runs every 10 minutes on Vercel Pro and once a day on Hobby (`vercel.json`). Leads that arrive during calling hours are always called at once.
+Leads that arrive during calling hours are called at once. Leads that arrive after hours, and retries, are placed by the background sweep: see [Background jobs on Vercel's free plan](#background-jobs-on-vercels-free-plan).
 
 ## Pages
 
@@ -53,7 +53,7 @@ Leads that arrive outside calling hours wait for the next opening. Retries and q
 | Super Admin | `/admin/login` (password = `ADMIN_PASSWORD`) |
 | Vapi server URL (set automatically) | `/webhooks/vapi/<locationId>` |
 | Twilio takeover line / TwiML app (set automatically) | `/twilio/voice/takeover`, `/twilio/voice/outbound` |
-| Cron (Vercel, every 10 min) | `/api/cron/sweep` |
+| Background sweep (Vercel cron daily + traffic + optional pinger) | `/api/cron/sweep` |
 | Speed-to-lead webhook (shown per client) | `/hooks/lead/<locationId>/<key>` |
 | ROI report / CSV | `/report?location=…&days=30`, `/api/reports/calls.csv` |
 
@@ -114,11 +114,23 @@ Do this in the HighLevel Marketplace developer portal, in your app's settings. A
 
 1. Create an Atlas cluster and allow Vercel's network (`0.0.0.0/0` or the Vercel integration).
 2. Import this repo into Vercel and set the environment variables from `.env.example`. These are required: `BASE_URL`, `MONGODB_URI`, `MONGODB_DB`, `GHL_CLIENT_ID`, `GHL_CLIENT_SECRET`, `GHL_SSO_KEY`, `ADMIN_PASSWORD`, `SESSION_SECRET`, `ENCRYPTION_KEY`, `CRON_SECRET`.
-3. Add your domain. `vercel.json` routes everything to `api/index.js` and runs the sweep cron every 10 minutes. That cron retries failed CRM syncs and closes calls that Vapi never reported as ended. Sub-daily crons need a Vercel Pro plan; on Hobby, change the schedule to daily.
+3. Add your domain. `vercel.json` routes everything to `api/index.js` and has one daily cron. That fits Vercel's free Hobby plan, which allows only daily crons.
 4. Optional: to attach agencies' custom domains automatically, set `VERCEL_API_TOKEN` and `VERCEL_PROJECT_ID`. Without them, add each domain in Vercel yourself after the agency verifies its CNAME.
 5. Run `npm run db:init` once, or let the indexes create themselves on first use.
 
 `ENCRYPTION_KEY` must never change after launch: every stored key is encrypted with it.
+
+## Background jobs on Vercel's free plan
+
+The sweep places speed-to-lead calls that are waiting, retries unanswered leads and failed CRM syncs, and closes calls Vapi never reported as ended. Vercel's Hobby plan allows only **one cron a day**, so the sweep runs from three places:
+
+1. **Normal traffic (automatic).** Vapi call webhooks, lead webhooks and every open Command Deck start the sweep in the background, at most once a minute (`SWEEP_INTERVAL_SEC`, default 60). A database lease makes sure only one instance runs it at a time. While calls are coming in or anyone has the deck open, retries go out within about a minute.
+2. **Daily Vercel cron** (`vercel.json`, 13:00 UTC, about 8–9 AM US Eastern). This catches up on anything waiting overnight, such as leads that came in after hours. Vercel may run it at any point within that hour.
+3. **Optional free pinger, for exact timing at quiet hours.** Use either one:
+   - **GitHub Actions** (included, `.github/workflows/sweep.yml`): add the repository secrets `APP_URL` and `CRON_SECRET`. It calls the sweep every 10 minutes. GitHub can delay scheduled runs a little at busy times.
+   - **cron-job.org** (free): create a job for `POST https://YOUR-DOMAIN/api/cron/sweep` with header `X-Cron-Secret: <CRON_SECRET>`, every 5 minutes.
+
+Super Admin → **HighLevel app setup** shows when the sweep last ran and from where. It warns if speed-to-lead calls have been waiting more than 15 minutes, which means you need the pinger. On Vercel Pro you can simply set the cron in `vercel.json` to `*/10 * * * *` instead. On a long-running server (`npm start` on Railway, Render or a VPS), the app sweeps itself every minute.
 
 ## Development
 

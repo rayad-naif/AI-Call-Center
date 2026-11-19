@@ -82,6 +82,8 @@ function load(env) {
     },
     // How the browser gets live updates: polling works everywhere (incl. Vercel).
     livePollMs: Math.max(800, Number(env.LIVE_POLL_MS || 1500)),
+    // Run the sweep from normal traffic at most this often (0 = off).
+    sweepIntervalSec: env.SWEEP_INTERVAL_SEC === undefined ? 60 : Math.max(0, Number(env.SWEEP_INTERVAL_SEC) || 0),
     redirectUri: baseUrl + '/oauth/callback',
     brand: {
       name: env.BRAND_NAME || 'AI Call Center',

@@ -1,0 +1,29 @@
+# Free replacement for a frequent Vercel cron (Vercel's Hobby plan allows one
+# cron a day). Calls the app's sweep every 10 minutes so overnight
+# speed-to-lead calls and retries go out on time.
+#
+# Setup: repo Settings > Secrets and variables > Actions > New repository secret
+#   APP_URL      https://your-app-domain   (no trailing slash)
+#   CRON_SECRET  the same value as the app's CRON_SECRET
+# Without these secrets the job exits without doing anything.
+# GitHub may delay scheduled runs by a few minutes at busy times.
+name: Background sweep
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Call /api/cron/sweep
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$APP_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "APP_URL / CRON_SECRET secrets not set: skipping."
+            exit 0
+          fi
+          curl -fsS --max-time 90 -X POST -H "X-Cron-Secret: $CRON_SECRET" "$APP_URL/api/cron/sweep"

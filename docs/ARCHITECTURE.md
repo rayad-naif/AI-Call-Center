@@ -67,3 +67,4 @@ MongoDB collections (the JSON file store mirrors them for development):
 - Every deploy step is idempotent and records its status, so a failed deploy resumes where it stopped and a redeploy updates resources in place.
 - The end-of-call report is acknowledged at once. Grading and sync then run in the background (`waitUntil` on Vercel). Failures are kept on the call, and the cron sweep retries them up to 5 times.
 - The sweep also closes calls that Vapi never reported as ended, after 3 hours.
+- Vercel's Hobby plan allows one cron a day, so the sweep is also triggered by traffic: Vapi webhooks, lead webhooks and deck polling. It runs at most once per `SWEEP_INTERVAL_SEC` under a database lease (`locks` collection), plus the daily cron and an optional external pinger.

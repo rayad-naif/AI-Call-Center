@@ -103,6 +103,17 @@ function createMongoStore(uri, dbName) {
       return fromDb(r); // driver v6 returns the document itself
     },
     async remove(col, id) { await (await c(col)).deleteOne({ _id: id }); },
+    // Lease across all serverless instances: only one caller wins per ttl window.
+    async claim(key, ttlMs) {
+      const now = Date.now();
+      try {
+        await (await c('locks')).findOneAndUpdate({ _id: key, until: { $lt: now } }, { $set: { until: now + ttlMs } }, { upsert: true });
+        return true;
+      } catch (e) {
+        if (e.code === 11000) return false; // held by someone else
+        throw e;
+      }
+    },
     async log(companyId, type, detail, extra) {
       await (await c('events')).insertOne(Object.assign({ at: new Date(), companyId: companyId || null, type, detail: detail || '' }, extra || {}));
     },

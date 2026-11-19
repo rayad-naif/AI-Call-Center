@@ -3,7 +3,7 @@ const path = require('path');
 const express = require('express');
 
 const { createStore } = require('./store');
-const { createSecurity, rateLimiter } = require('./security');
+const { createSecurity, rateLimiter, safeEqual } = require('./security');
 const { createTwilio } = require('./integrations/twilio');
 const { createVapi } = require('./integrations/vapi');
 const { createGhl } = require('./integrations/ghl');
@@ -58,12 +58,31 @@ function createApp(cfg, deps) {
   app.set('trust proxy', true);
   app.locals.store = ctx.store;
   app.locals.ctx = ctx;
-  app.locals.sweep = async () => {
+  /* The sweep places queued speed-to-lead calls, retries failed CRM syncs and
+     closes stuck calls. It runs from three places, so it works on Vercel's free
+     plan (one cron a day):
+       1. normal traffic: Vapi webhooks, lead webhooks and open Command Decks
+          start it in the background, at most once per SWEEP_INTERVAL_SEC;
+       2. the daily Vercel cron (vercel.json);
+       3. an optional external pinger (GitHub Actions, cron-job.org) calling
+          /api/cron/sweep with the CRON_SECRET, for exact timing overnight. */
+  app.locals.sweep = async (source) => {
     const stale = await ctx.calls.sweepStale();
     const synced = await ctx.qa.retryQueued(25);
     const leads = await ctx.automation.processDueLeads(25);
-    return { stale, synced, leads };
+    const result = { stale, synced, leads };
+    await ctx.store.put('meta', { _id: 'sweep', lastAt: new Date().toISOString(), source: source || 'manual', result });
+    return result;
   };
+  let lastLocalCheck = 0;
+  function sweepOnTraffic() {
+    const every = cfg.sweepIntervalSec * 1000;
+    if (!every || Date.now() - lastLocalCheck < every) return;
+    lastLocalCheck = Date.now();
+    ctx.background('sweep', async () => {
+      if (await ctx.store.claim('sweep', every)) await app.locals.sweep('traffic');
+    });
+  }
 
   // Security headers. Pages must be frameable: HighLevel (and every
   // white-label CRM domain) embeds them as custom pages.
@@ -89,6 +108,12 @@ function createApp(cfg, deps) {
     } catch (e) { next(e); }
   });
 
+  // Opportunistic sweep on the busy, machine-driven routes.
+  app.use((req, res, next) => {
+    if (/^\/(webhooks\/vapi|hooks\/lead|api\/live\/calls$)/.test(req.path)) sweepOnTraffic();
+    next();
+  });
+
   require('./routes/webhooks')(app, ctx);
   require('./routes/oauth')(app, ctx);
   require('./routes/agency')(app, ctx);
@@ -97,10 +122,15 @@ function createApp(cfg, deps) {
   require('./routes/admin')(app, ctx);
   require('./routes/pages')(app, ctx);
 
-  app.get('/api/cron/sweep', async (req, res) => {
-    const auth = req.headers.authorization || '';
-    if (!cfg.cronSecret || auth !== 'Bearer ' + cfg.cronSecret) return res.status(401).json({ error: 'unauthorized' });
-    res.json(await app.locals.sweep());
+  // Vercel Cron sends GET with "Authorization: Bearer CRON_SECRET". External
+  // pingers may use GET or POST, with that header or X-Cron-Secret.
+  app.all('/api/cron/sweep', async (req, res, next) => {
+    try {
+      const given = (req.headers.authorization || '').replace(/^Bearer /, '') || req.headers['x-cron-secret'] || '';
+      if (!cfg.cronSecret || !safeEqual(given, cfg.cronSecret)) return res.status(401).json({ error: 'unauthorized' });
+      const src = req.headers['user-agent'] && /vercel-cron/i.test(req.headers['user-agent']) ? 'vercel-cron' : 'cron';
+      res.json(await app.locals.sweep(src));
+    } catch (e) { next(e); }
   });
 
   app.get('/healthz', (req, res) => res.json({ ok: true, store: ctx.store.kind }));

@@ -63,6 +63,15 @@ function createFileStore(dir) {
       return clone(doc);
     },
     async remove(c, id) { delete col(c)[id]; save(); },
+    // Lease: true if `key` was free (or expired) and is now held for ttlMs.
+    async claim(key, ttlMs) {
+      const locks = col('locks');
+      const now = Date.now();
+      if (locks[key] && locks[key].until > now) return false;
+      locks[key] = { _id: key, until: now + ttlMs };
+      save();
+      return true;
+    },
     async log(companyId, type, detail, extra) {
       data.events.unshift(Object.assign({ at: new Date().toISOString(), companyId: companyId || null, type, detail: detail || '' }, extra || {}));
       if (data.events.length > 2000) data.events.length = 2000;

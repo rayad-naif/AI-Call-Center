@@ -17,8 +17,8 @@ const server = app.listen(cfg.port, () => {
   console.log('Custom page (SSO) URL:   ' + cfg.baseUrl + '/embed');
 });
 
-// Long-running servers sweep themselves; on Vercel the cron in vercel.json does it.
-setInterval(() => { app.locals.sweep().catch((e) => console.error('sweep failed', e)); }, 10 * 60e3).unref();
+// Long-running servers (Railway, Render, a VPS) sweep themselves every minute.
+setInterval(() => { app.locals.sweep('timer').catch((e) => console.error('sweep failed', e)); }, 60e3).unref();
 
 function shutdown() {
   server.close(() => Promise.resolve(app.locals.store.close()).finally(() => process.exit(0)));

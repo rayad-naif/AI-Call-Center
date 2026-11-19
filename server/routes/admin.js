@@ -56,6 +56,16 @@ module.exports = function (app, ctx) {
       ['Separate ENCRYPTION_KEY', !!process.env.ENCRYPTION_KEY && process.env.ENCRYPTION_KEY !== cfg.sessionSecret, 'Use a different value from SESSION_SECRET and never change it after launch.'],
       ['Cron secret (CRON_SECRET)', !!cfg.cronSecret, cfg.cronSecret ? 'Set' : 'Needed for CRM sync retries and speed-to-lead retries.']
     ].map(([name, ok, detail]) => ({ name, ok, detail }));
+    // Background jobs: when did the sweep last run, and is anything waiting?
+    const sw = await store.get('meta', 'sweep');
+    const overdue = await store.find('leads', { status: 'queued', nextAt: { $lt: new Date(Date.now() - 15 * 60e3).toISOString() } }, { limit: 1 });
+    const ago = sw ? Math.round((Date.now() - Date.parse(sw.lastAt)) / 60e3) : null;
+    checks.push({
+      name: 'Background jobs (sweep)',
+      ok: !!sw && !overdue.length,
+      detail: (sw ? 'Last run ' + ago + ' min ago (' + sw.source + ').' : 'Has not run yet.') +
+        (overdue.length ? ' Some speed-to-lead calls are waiting more than 15 minutes: add the free external pinger from the README so overnight leads and retries go out on time.' : '')
+    });
     res.json({
       checks,
       paste: {

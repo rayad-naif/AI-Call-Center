@@ -100,3 +100,30 @@ test('refresh tokens: single-use race and credential check', async (t) => {
   r = await admin.req('POST', '/api/admin/setup/test', {});
   assert.equal(r.json.ok, false);
 });
+
+test('sweep runs from traffic (Vercel free plan), once per interval, and from the cron', async (t) => {
+  const env = await setup({ SWEEP_INTERVAL_SEC: '60' });
+  t.after(() => env.server.close());
+  const { ctx, base } = env;
+  // Two leases in the same window: only the first wins.
+  assert.equal(await ctx.store.claim('x', 60e3), true);
+  assert.equal(await ctx.store.claim('x', 60e3), false);
+
+  // A Vapi webhook (even a rejected one) starts a background sweep.
+  await fetch(base + '/webhooks/vapi/nope', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  await Promise.all(env.pending.splice(0));
+  const m = await ctx.store.get('meta', 'sweep');
+  assert.equal(m.source, 'traffic');
+  // Within the interval, more traffic does not sweep again.
+  await fetch(base + '/webhooks/vapi/nope', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  assert.equal(env.pending.length, 0);
+
+  // Cron: Vercel style (GET + Bearer) and external pinger style (POST + header).
+  let r = await fetch(base + '/api/cron/sweep', { headers: { authorization: 'Bearer cron', 'user-agent': 'vercel-cron/1.0' } });
+  assert.equal(r.status, 200);
+  assert.equal((await ctx.store.get('meta', 'sweep')).source, 'vercel-cron');
+  r = await fetch(base + '/api/cron/sweep', { method: 'POST', headers: { 'x-cron-secret': 'cron' } });
+  assert.equal(r.status, 200);
+  r = await fetch(base + '/api/cron/sweep', { method: 'POST', headers: { 'x-cron-secret': 'wrong' } });
+  assert.equal(r.status, 401);
+});
