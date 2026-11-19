@@ -2,7 +2,7 @@
    REST API (/api/v1) your other apps use, with the admin session. */
 (function () {
   'use strict';
-  const { api, h, toast, fmtTime, fmtDur, busy } = window.ACC;
+  const { api, h, toast, fmtTime, fmtDur } = window.ACC;
   const root = document.getElementById('admin');
   const TABS = [['dashboard', 'Dashboard'], ['companies', 'Companies'], ['calls', 'Calls'], ['leads', 'Leads'], ['activity', 'Activity'], ['webhooks', 'Webhooks'], ['api', 'API'], ['setup', 'Setup']];
   const OUT = { appointment_booked: 'Booked', qualified_lead: 'Qualified lead', support_resolved: 'Resolved', support_ticket: 'Ticket', not_interested: 'Not interested', spam: 'Spam', voicemail: 'Voicemail', other: 'Other' };
@@ -233,98 +233,11 @@
     await load();
   }
 
-  /* ---------- webhooks ---------- */
-  async function webhooksTab(body) {
-    const [w, d] = await Promise.all([api('GET', '/api/admin/webhooks'), api('GET', '/api/admin/webhook-deliveries?limit=50')]);
-    const url = h('input', { type: 'url', placeholder: 'https://your-other-app.com/hooks/call-center', required: true });
-    const desc = h('input', { placeholder: 'Description (e.g. "Attendly sync")' });
-    const comp = companySelect('', 'All companies');
-    const evBoxes = w.eventTypes.map((t) => h('label.row', h('input', { type: 'checkbox', value: t }), ' ', h('code', t)));
-    const all = h('input', { type: 'checkbox', checked: true });
-    const out = h('div');
-    const create = h('button.btn.primary', { type: 'button' }, 'Add webhook');
-    create.addEventListener('click', () => busy(create, async () => {
-      try {
-        const events = all.checked ? ['*'] : evBoxes.map((l) => l.querySelector('input')).filter((i) => i.checked).map((i) => i.value);
-        const r = await api('POST', '/api/admin/webhooks', { url: url.value, description: desc.value, companyId: comp.value || null, events });
-        out.innerHTML = '';
-        out.append(h('div.note.ok', 'Webhook added. Signing secret (shown once): ', h('code', r.secret), ' ', copyBtn(r.secret)));
-        setTimeout(() => route(), 15000);
-      } catch (e) { toast(e.message, 'err'); }
-    }));
-    body.append(
-      h('div.card', h('h2', 'Webhooks (' + w.data.length + ')'), table(['URL', 'Events', 'Company', 'Last delivery', 'Active', ''], w.data.map((x) => ({ item: x, cells: [
-        h('td', h('code', x.url), x.description ? h('div.muted.small', x.description) : null), h('td.small', x.events.join(', ')), h('td.small', x.companyId ? companyName(x.companyId) : 'All'),
-        h('td.small', x.lastAt ? badge(x.lastStatus, statusKind(x.lastStatus)) : '—', x.lastAt ? ' ' + fmtTime(x.lastAt) : '', x.failures ? ' · ' + x.failures + ' failing' : ''),
-        h('td', x.active ? 'yes' : 'paused'),
-        h('td.right.nowrap',
-          h('button.btn.small', { on: { click: async (e) => { e.stopPropagation(); const r = await api('POST', '/api/admin/webhooks/' + x.id + '/test', {}).catch((err) => ({ ok: false, error: err.message })); toast(r.ok ? 'Test delivered (HTTP ' + r.code + ')' : 'Test failed: ' + (r.error || 'HTTP ' + r.code), r.ok ? 'ok' : 'err'); route(); } } }, 'Send test'), ' ',
-          h('button.btn.small', { on: { click: async (e) => { e.stopPropagation(); await api('PATCH', '/api/admin/webhooks/' + x.id, { active: !x.active }); route(); } } }, x.active ? 'Pause' : 'Resume'), ' ',
-          h('button.btn.small.danger', { on: { click: async (e) => { e.stopPropagation(); if (confirm('Delete this webhook?')) { await api('DELETE', '/api/admin/webhooks/' + x.id); route(); } } } }, 'Delete'))] })))),
-      h('div.card.form-grid', h('h2', 'Add a webhook'),
-        h('label', 'Endpoint URL (https)', url), h('label', 'Description', desc), h('label', 'Company', comp),
-        h('label.row', all, ' All events'), h('details', h('summary', 'Or choose events'), h('div.event-grid', evBoxes)),
-        create, out),
-      h('div.card', h('h2', 'Recent deliveries'), table(['When', 'Event', 'Webhook', 'Status', 'Attempts', 'Response'], d.data.map((x) => ({ item: x, cells: [
-        h('td.small.nowrap', fmtTime(x.createdAt)), h('td', h('code', x.type)), h('td.small', (w.data.find((y) => y.id === x.hookId) || {}).url || x.hookId), h('td', badge(x.status, statusKind(x.status))),
-        h('td', String(x.attempts)), h('td.small', x.lastError || (x.lastCode ? 'HTTP ' + x.lastCode : '—'))] })))),
-      h('div.card', h('h2', 'Verifying deliveries'), h('p.muted', 'Each request carries X-ACC-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of "t.rawBody" with your signing secret>. Reject it if the HMAC does not match or t is more than 5 minutes old.'),
-        h('pre.prompt', [
-          "const crypto = require('crypto');",
-          'function verify(rawBody, header, secret) {',
-          "  const { t, v1 } = Object.fromEntries(header.split(',').map((p) => p.split('=')));",
-          "  const want = crypto.createHmac('sha256', secret).update(t + '.' + rawBody).digest('hex');",
-          '  const fresh = Math.abs(Date.now() / 1000 - Number(t)) < 300;',
-          "  return fresh && crypto.timingSafeEqual(Buffer.from(want), Buffer.from(v1 || ''));",
-          '}'].join('\n'))));
-  }
-
-  /* ---------- API: keys + reference ---------- */
-  async function apiTab(body) {
-    const [keys, ref] = await Promise.all([api('GET', '/api/admin/api-keys'), api('GET', '/api/admin/api-reference')]);
-    const name = h('input', { placeholder: 'Name, e.g. "Attendly" or "Zapier"' });
-    const write = h('input', { type: 'checkbox' });
-    const comp = companySelect('', 'All companies');
-    const out = h('div');
-    const create = h('button.btn.primary', { type: 'button' }, 'Create key');
-    create.addEventListener('click', () => busy(create, async () => {
-      try {
-        const r = await api('POST', '/api/admin/api-keys', { name: name.value, write: write.checked, companyId: comp.value || null });
-        out.innerHTML = '';
-        out.append(h('div.note.ok', 'Key created. Copy it now: it is shown only once. ', h('br'), h('code', r.key), ' ', copyBtn(r.key)));
-      } catch (e) { toast(e.message, 'err'); }
-    }));
-    const base = ref.baseUrl;
-    const groups = {};
-    ref.endpoints.forEach((e) => { (groups[e.group] = groups[e.group] || []).push(e); });
-    const curl = (e) => {
-      const path = e.path.replace(/\{(\w+)\}/g, (m, k) => '<' + k + '>');
-      return 'curl' + (e.method !== 'GET' ? ' -X ' + e.method : '') + ' "' + base + path + '"' + ' \\\n  -H "Authorization: Bearer $ACC_API_KEY"' +
-        (e.body ? ' \\\n  -H "Content-Type: application/json" \\\n  -d \'' + e.body.replace(/"active" \| "pending" \| "suspended"/, '"suspended"') + '\'' : '');
-    };
-    body.append(
-      h('div.card', h('h2', 'API keys'), h('p.muted', 'Give each of your apps its own key. Read keys can only read; write keys can also send leads and change licenses. A key can be limited to one company.'),
-        table(['Name', 'Key', 'Scopes', 'Company', 'Created', 'Last used', ''], keys.data.map((k) => ({ item: k, cells: [
-          h('td', h('strong', k.name)), h('td', h('code', k.id + '…')), h('td', k.scopes.join(' + ')), h('td.small', k.companyId ? companyName(k.companyId) : 'All'),
-          h('td.small', fmtTime(k.createdAt)), h('td.small', fmtTime(k.lastUsedAt) || 'never'),
-          h('td', k.revoked ? badge('revoked', 'failed') : h('button.btn.small.danger', { on: { click: async () => { if (confirm('Revoke "' + k.name + '"? Apps using it stop working immediately.')) { await api('DELETE', '/api/admin/api-keys/' + encodeURIComponent(k.id)); route(); } } } }, 'Revoke'))] }))),
-        h('div.row', h('label', 'Name', name), h('label', 'Company', comp), h('label.row', write, ' Allow writes'), create), out),
-      h('div.card', h('div.row-between', h('h2', 'API reference'), h('div.row', h('a.btn.small', { href: '/api/v1/openapi.json', target: '_blank' }, 'OpenAPI JSON'), copyBtn(base + '/api/v1/openapi.json'))),
-        h('ul.kv',
-          h('li', h('span', 'Base URL'), h('code', base + '/api/v1')),
-          h('li', h('span', 'Authentication'), h('code', 'Authorization: Bearer acc_…')),
-          h('li', h('span', 'Format'), h('span', 'JSON. Times are ISO 8601 UTC. Errors: { "error": "message" } with HTTP 400/401/403/404/409/429.')),
-          h('li', h('span', 'Pagination'), h('span', 'Lists return { data, nextBefore }. Pass ?before=<nextBefore> for the next page.')),
-          h('li', h('span', 'Rate limit'), h('span', '600 requests per minute per key')),
-          h('li', h('span', 'Push instead of poll'), h('span', 'Webhooks tab: events ', h('code', ref.eventTypes.join(', '))))),
-        Object.entries(groups).map(([g, list]) => h('div.api-group', h('h3', g), list.map((e) => h('details.api-ep',
-          h('summary', h('span.method.m-' + e.method.toLowerCase(), e.method), ' ', h('code', e.path), ' ', h('span.muted.small', e.summary), ' ', h('span.badge.none', e.scope)),
-          e.params && e.params.length ? h('table.table.small', h('tbody', e.params.map((p) => h('tr', h('td', h('code', p.name)), h('td', p.desc))))) : null,
-          e.body ? h('div', h('h4', 'Body'), h('pre.prompt', e.body)) : null,
-          h('h4', 'Returns'), h('pre.prompt', e.returns),
-          h('h4', 'Example'), h('div.row', h('pre.prompt.grow', curl(e)), copyBtn(curl(e))))))),
-        h('h3', 'Objects'), Object.entries(ref.shapes).map(([k, v]) => h('div', h('h4', k), h('pre.prompt', v)))));
-  }
+  /* ---------- webhooks + API (shared screens in api-ui.js) ---------- */
+  const shared = { base: '/api/admin', reload: () => route(), companyPicker: () => companySelect('', 'All companies'), companyName,
+    intro: 'Give each of your apps its own key. Read keys can only read; write keys can also send leads and change licenses. A key can be limited to one company. Companies can also create keys for their own data in their console (API tab).' };
+  async function webhooksTab(body) { await window.ACCApiUI.webhooks(body, shared); }
+  async function apiTab(body) { await window.ACCApiUI.keys(body, shared); await window.ACCApiUI.reference(body, shared); }
 
   /* ---------- setup ---------- */
   async function setupTab(body) {

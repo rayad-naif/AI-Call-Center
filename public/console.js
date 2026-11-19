@@ -3,7 +3,7 @@
   'use strict';
   const { api, h, toast, fmtTime, busy } = window.ACC;
   const root = document.getElementById('console');
-  const TABS = [['overview', 'Overview'], ['keys', 'Keys'], ['clients', 'Clients'], ['branding', 'Branding'], ['team', 'Team'], ['activity', 'Activity']];
+  const TABS = [['overview', 'Overview'], ['keys', 'Keys'], ['clients', 'Clients'], ['branding', 'Branding'], ['team', 'Team'], ['api', 'API'], ['activity', 'Activity']];
   const OUTCOME_LABEL = {
     appointment_booked: 'Appointment booked', qualified_lead: 'Qualified lead', support_resolved: 'Support resolved',
     support_ticket: 'Support ticket', not_interested: 'Not interested', spam: 'Spam / robocall', voicemail: 'Voicemail', other: 'Other'
@@ -36,7 +36,7 @@
     const nav = h('nav.tabs', TABS.map(([k, l]) => [k, k === 'clients' && single() ? 'Call center' : l]).map(([k, l]) => h('a', { href: '#' + k, class: state.tab === k ? 'active' : '' }, l)));
     const body = h('section.tab-body');
     root.append(h('div.console-head', h('div', h('h1', state.agency.name), h('p.muted', 'License: ', badge(state.agency.status))), h('div.row', h('a.btn', { href: '/report' }, 'ROI report'), h('a.btn.primary', { href: '/deck' }, 'Open Command Deck'))), nav, body);
-    ({ overview, keys, clients, branding, team, activity })[state.tab](body);
+    ({ overview, keys, clients, branding, team, api: apiTab, activity })[state.tab](body);
   }
   window.addEventListener('hashchange', () => { state.tab = (location.hash.slice(1) || 'overview').split('/')[0]; if (TABS.some(([k]) => k === state.tab)) render(); });
 
@@ -444,6 +444,22 @@
       h('p.muted.small', 'Inside the CRM, users are signed in automatically from the sidebar: company admins get this console, and anyone opening the app inside an account sees only that client\'s deck.'));
   }
   const clear = (n) => { n.innerHTML = ''; return n; };
+
+  /* ---------- API: this company's keys, webhooks and reference ---------- */
+  async function apiTab(body) {
+    const opts = { base: '/api/company', reload: () => render(),
+      intro: 'Connect your other apps and automations (Zapier, Make, your own software) to this call center. Keys only ever see your own accounts, calls and leads. Read keys can only read; write keys can also send leads for the AI to call.' };
+    const sub = h('nav.subtabs', [['keys', 'Keys'], ['webhooks', 'Webhooks'], ['reference', 'Reference']].map(([k, l]) => h('a', { href: '#api/' + k, class: (location.hash.split('/')[1] || 'keys') === k ? 'active' : '' }, l)));
+    const box = h('div', h('div.spinner'));
+    body.append(sub, box);
+    const which = location.hash.split('/')[1] || 'keys';
+    box.innerHTML = '';
+    try {
+      if (which === 'webhooks') await window.ACCApiUI.webhooks(box, opts);
+      else if (which === 'reference') await window.ACCApiUI.reference(box, opts);
+      else await window.ACCApiUI.keys(box, opts);
+    } catch (e) { box.append(h('p.error', e.message)); }
+  }
 
   /* ---------- activity ---------- */
   async function activity(body) {

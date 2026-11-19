@@ -25,7 +25,8 @@ module.exports = function (app, ctx) {
       const key = await store.get('apiKeys', sha256(m[1]));
       if (!key || key.revoked) return null;
       if (!key.lastUsedAt || Date.parse(key.lastUsedAt) < Date.now() - 60e3) store.patch('apiKeys', key._id, { lastUsedAt: new Date().toISOString() }).catch(() => {});
-      return { kind: 'key', name: key.name, scopes: key.scopes, companyId: key.companyId || null, keyId: key.prefix };
+      // createdBy 'company' = made by a company in its own console (always limited to it).
+      return { kind: 'key', name: key.name, scopes: key.scopes, companyId: key.companyId || null, keyId: key.prefix, platform: key.createdBy !== 'company' };
     }
     if (req.isAdmin) return { kind: 'admin', name: 'Super Admin', scopes: ['read', 'write'], companyId: null };
     return null;
@@ -50,6 +51,8 @@ module.exports = function (app, ctx) {
     if (req.method === 'OPTIONS') return res.status(204).end();
     next();
   });
+  // Only the platform owner (Super Admin or keys it created) may change licenses.
+  const platformOnly = (req, res, next) => (req.api.kind === 'admin' || req.api.platform ? next() : res.status(403).json({ error: 'Only the platform owner can change licenses' }));
 
   app.get('/api/v1/openapi.json', (req, res) => res.json(spec.openapi(cfg.baseUrl, ctx.webhooksOut.EVENT_TYPES)));
 
@@ -58,7 +61,7 @@ module.exports = function (app, ctx) {
 
   app.get('/api/v1/companies', need('read'), h(async (req, res) => res.json({ data: await platform.listCompanies(scopeOf(req), req.query) })));
   app.get('/api/v1/companies/:id', need('read'), h(async (req, res) => res.json(await platform.getCompany(scopeOf(req), req.params.id))));
-  app.patch('/api/v1/companies/:id', need('write'), h(async (req, res) => res.json(await platform.setCompanyStatus(scopeOf(req), req.params.id, (req.body || {}).status))));
+  app.patch('/api/v1/companies/:id', need('write'), platformOnly, h(async (req, res) => res.json(await platform.setCompanyStatus(scopeOf(req), req.params.id, (req.body || {}).status))));
 
   app.get('/api/v1/accounts', need('read'), h(async (req, res) => res.json({ data: await platform.listAccounts(scopeOf(req), req.query) })));
   app.get('/api/v1/accounts/:id', need('read'), h(async (req, res) => res.json(await platform.getAccount(scopeOf(req), req.params.id))));
@@ -97,7 +100,7 @@ module.exports = function (app, ctx) {
     if (companyId && !(await store.get('agencies', companyId))) throw httpError(404, 'Company not found');
     const key = 'acc_' + randomToken(30);
     const prefix = key.slice(0, 12);
-    await store.put('apiKeys', { _id: sha256(key), prefix, name, scopes, companyId, createdAt: new Date().toISOString() });
+    await store.put('apiKeys', { _id: sha256(key), prefix, name, scopes, companyId, createdBy: 'admin', createdAt: new Date().toISOString() });
     await store.log(companyId, 'api.key_created', name + ' (' + scopes.join('+') + ')');
     res.json({ key, apiKey: { id: prefix, name, scopes, companyId } });
   }));
@@ -117,4 +120,54 @@ module.exports = function (app, ctx) {
   app.get('/api/admin/webhook-deliveries', admin, h(async (req, res) => res.json({ data: await ctx.webhooksOut.deliveries(req.query.hookId, Number(req.query.limit) || 50) })));
 
   app.get('/api/admin/api-reference', admin, (req, res) => res.json({ baseUrl: cfg.baseUrl, endpoints: spec.ENDPOINTS, shapes: spec.SHAPES, eventTypes: ctx.webhooksOut.EVENT_TYPES }));
+
+  /* ---------- Company console: each company's own keys and webhooks ----------
+     Owners/admins of a company (or single-account workspace) manage keys and
+     webhooks limited to that company. Their keys can read and send leads,
+     never change licenses or see other companies. */
+  const { requireSession, withAgency, csrf } = require('./util');
+  const companyAdmin = [csrf, requireSession(ctx, 'admin', { agencyOnly: true }), withAgency(ctx)];
+  // White-label: a verified custom domain is the API base URL the company sees.
+  async function companyBase(agency) {
+    const domain = agency.branding && agency.branding.domain;
+    const d = domain && await store.get('domains', domain);
+    return d && d.verified ? 'https://' + domain : cfg.baseUrl;
+  }
+
+  app.get('/api/company/api-keys', ...companyAdmin, h(async (req, res) => {
+    res.json({ data: (await store.find('apiKeys', { companyId: req.agency._id }, { sort: { createdAt: -1 } })).map(publicKey) });
+  }));
+  app.post('/api/company/api-keys', ...companyAdmin, h(async (req, res) => {
+    const b = req.body || {};
+    const name = String(b.name || '').trim().slice(0, 60);
+    if (!name) throw httpError(400, 'Name the key after the app that will use it');
+    const scopes = ['read'].concat(b.write ? ['write'] : []);
+    const key = 'acc_' + randomToken(30);
+    const prefix = key.slice(0, 12);
+    await store.put('apiKeys', { _id: sha256(key), prefix, name, scopes, companyId: req.agency._id, createdBy: 'company', createdByUser: req.session.email || req.session.uid, createdAt: new Date().toISOString() });
+    await store.log(req.agency._id, 'api.key_created', name + ' (' + scopes.join('+') + ')');
+    res.json({ key, apiKey: { id: prefix, name, scopes, companyId: req.agency._id } });
+  }));
+  app.delete('/api/company/api-keys/:prefix', ...companyAdmin, h(async (req, res) => {
+    const k = (await store.find('apiKeys', { prefix: req.params.prefix, companyId: req.agency._id }, { limit: 1 }))[0];
+    if (!k) throw httpError(404, 'Key not found');
+    await store.patch('apiKeys', k._id, { revoked: true, revokedAt: new Date().toISOString() });
+    await store.log(req.agency._id, 'api.key_revoked', k.name);
+    res.json({ ok: true });
+  }));
+
+  app.get('/api/company/webhooks', ...companyAdmin, h(async (req, res) => res.json({ data: await ctx.webhooksOut.list(req.agency._id), eventTypes: ctx.webhooksOut.EVENT_TYPES })));
+  app.post('/api/company/webhooks', ...companyAdmin, h(async (req, res) => {
+    const r = await ctx.webhooksOut.create(Object.assign({}, req.body || {}, { companyId: req.agency._id }));
+    await store.log(req.agency._id, 'webhook.created', r.webhook.url);
+    res.json(r);
+  }));
+  app.patch('/api/company/webhooks/:id', ...companyAdmin, h(async (req, res) => res.json(await ctx.webhooksOut.update(req.params.id, Object.assign({}, req.body || {}, { companyId: undefined }), req.agency._id))));
+  app.delete('/api/company/webhooks/:id', ...companyAdmin, h(async (req, res) => { await ctx.webhooksOut.remove(req.params.id, req.agency._id); res.json({ ok: true }); }));
+  app.post('/api/company/webhooks/:id/test', ...companyAdmin, h(async (req, res) => res.json(await ctx.webhooksOut.sendTest(req.params.id, req.agency._id))));
+  app.get('/api/company/webhook-deliveries', ...companyAdmin, h(async (req, res) => res.json({ data: await ctx.webhooksOut.deliveries(req.query.hookId, Number(req.query.limit) || 50, req.agency._id) })));
+  app.get('/api/company/api-reference', ...companyAdmin, h(async (req, res) => res.json({
+    baseUrl: await companyBase(req.agency), companyId: req.agency._id,
+    endpoints: spec.ENDPOINTS.filter((e) => !e.platformOnly), shapes: spec.SHAPES, eventTypes: ctx.webhooksOut.EVENT_TYPES
+  })));
 };

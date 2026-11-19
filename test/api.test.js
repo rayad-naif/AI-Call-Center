@@ -182,3 +182,52 @@ test('outgoing webhooks: signed deliveries, filters, retries, test ping', async 
   await env.settle();
   assert.equal((fakes.state.hooks || []).length, before, 'paused hooks get nothing');
 });
+
+test('company console: own API keys and webhooks, limited to that company, no license changes', async (t) => {
+  const env = await platform(t);
+  const { owner, admin, base, ctx } = env;
+
+  // A client user (not a company admin) cannot manage keys.
+  let r = await owner.req('POST', '/api/users', { email: 'bob@plumbing.com', kind: 'client', role: 'manager', locationIds: ['loc1aaaaaaaa'], password: 'bobpassword1' });
+  const bob = client(base);
+  await bob.req('POST', '/api/auth/login', { email: 'bob@plumbing.com', password: 'bobpassword1' });
+  assert.equal((await bob.req('GET', '/api/company/api-keys')).status, 403);
+
+  r = await owner.req('POST', '/api/company/api-keys', { name: 'Zapier', write: true, companyId: 'comp2' });
+  assert.equal(r.status, 200, r.text);
+  assert.equal(r.json.apiKey.companyId, 'comp1', 'always limited to the own company, whatever is sent');
+  const k = bearer(base, r.json.key);
+  r = await k('GET', '/api/v1/companies');
+  assert.deepEqual(r.json.data.map((c) => c.id), ['comp1']);
+  assert.equal((await k('GET', '/api/v1/calls/c_other')).status, 403);
+  assert.equal((await k('PATCH', '/api/v1/companies/comp1', { status: 'active' })).status, 403, 'company keys never change licenses');
+  r = await k('POST', '/api/v1/leads', { accountId: 'loc1aaaaaaaa', phone: '+15125550777', name: 'Lee' });
+  assert.equal(r.status, 201);
+
+  // The company sees only its own keys; the super admin sees all.
+  await admin.req('POST', '/api/admin/api-keys', { name: 'Platform BI' });
+  assert.deepEqual((await owner.req('GET', '/api/company/api-keys')).json.data.map((x) => x.name), ['Zapier']);
+  assert.equal((await admin.req('GET', '/api/admin/api-keys')).json.data.length, 2);
+  const otherPrefix = (await admin.req('GET', '/api/admin/api-keys')).json.data.find((x) => x.name === 'Platform BI').id;
+  assert.equal((await owner.req('DELETE', '/api/company/api-keys/' + otherPrefix)).status, 404);
+
+  // Webhooks: forced to the company; others' hooks are invisible and untouchable.
+  const adminHook = (await admin.req('POST', '/api/admin/webhooks', { url: 'https://hooks.example.test/platform' })).json.webhook.id;
+  r = await owner.req('POST', '/api/company/webhooks', { url: 'https://hooks.example.test/mine', companyId: 'comp2', events: ['call.ended'] });
+  assert.equal(r.json.webhook.companyId, 'comp1');
+  const mine = r.json.webhook.id;
+  assert.deepEqual((await owner.req('GET', '/api/company/webhooks')).json.data.map((x) => x.id), [mine]);
+  assert.equal((await owner.req('DELETE', '/api/company/webhooks/' + adminHook)).status, 404);
+  assert.equal((await owner.req('POST', '/api/company/webhooks/' + adminHook + '/test', {})).status, 404);
+  assert.equal((await owner.req('POST', '/api/company/webhooks/' + mine + '/test', {})).json.ok, true);
+  assert.ok((await owner.req('GET', '/api/company/webhook-deliveries')).json.data.every((d) => d.hookId === mine));
+
+  // Reference: no license endpoint; custom domain becomes the base URL once verified.
+  r = await owner.req('GET', '/api/company/api-reference');
+  assert.ok(!r.json.endpoints.some((e) => e.method === 'PATCH'));
+  assert.equal(r.json.companyId, 'comp1');
+  assert.equal(r.json.baseUrl, base);
+  await ctx.store.patch('agencies', 'comp1', { 'branding.domain': 'calls.acme.com' });
+  await ctx.store.put('domains', { _id: 'calls.acme.com', companyId: 'comp1', verified: true });
+  assert.equal((await owner.req('GET', '/api/company/api-reference')).json.baseUrl, 'https://calls.acme.com');
+});

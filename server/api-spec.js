@@ -15,7 +15,7 @@ const ENDPOINTS = [
     params: [P('q', 'Search name, id or custom domain'), P('status', 'active | pending | suspended'), P('type', 'company | single_account'), P('installed', 'true | false')],
     returns: '{ data: [Company] }' },
   { group: 'Companies', method: 'GET', path: '/api/v1/companies/{companyId}', scope: 'read', summary: 'One company with its accounts and users', returns: 'Company & { accounts: [Account], users: [User] }' },
-  { group: 'Companies', method: 'PATCH', path: '/api/v1/companies/{companyId}', scope: 'write', summary: 'Change the license status', body: '{ "status": "active" | "pending" | "suspended" }', returns: 'Company' },
+  { group: 'Companies', method: 'PATCH', path: '/api/v1/companies/{companyId}', scope: 'write', platformOnly: true, summary: 'Change the license status (platform owner keys only)', body: '{ "status": "active" | "pending" | "suspended" }', returns: 'Company' },
 
   { group: 'Accounts', method: 'GET', path: '/api/v1/accounts', scope: 'read', summary: 'List deployed call centers (one per CRM account)',
     params: [P('companyId', 'Limit to one company'), P('status', 'draft | deploying | live | failed | removed')], returns: '{ data: [Account] }' },

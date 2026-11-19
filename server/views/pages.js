@@ -44,7 +44,7 @@ const consolePage = (req) => page(req, {
   title: 'Company console', mainClass: 'shell',
   nav: '<a href="/deck">Command Deck</a><button class="link" data-logout>Sign out</button>',
   body: '<div id="console"><div class="spinner"></div></div>',
-  scripts: ['/static/console.js']
+  scripts: ['/static/api-ui.js', '/static/console.js']
 });
 
 const deck = (req, opts) => page(req, {
@@ -74,7 +74,7 @@ const adminLogin = (req) => page(req, {
 const admin = (req) => page(req, {
   mainClass: 'shell',
   title: 'Super Admin', nav: '<button class="link" data-logout="/api/admin/logout">Sign out</button>',
-  body: '<div id="admin"><div class="spinner"></div></div>', scripts: ['/static/admin.js']
+  body: '<div id="admin"><div class="spinner"></div></div>', scripts: ['/static/api-ui.js', '/static/admin.js']
 });
 
 function landing(req, cfg) {

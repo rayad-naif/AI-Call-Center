@@ -171,6 +171,10 @@ The app is a sub-account app that an agency can install for its sub-accounts. Bo
 ## REST API and webhooks (connect your other apps)
 
 - **Base URL:** `${BASE_URL}/api/v1`. The machine-readable spec is at `${BASE_URL}/api/v1/openapi.json` (OpenAPI 3).
+- **Companies connect their own apps too:** the company console (and each single-account workspace) has an **API** tab with Keys, Webhooks and Reference.
+  - Keys and webhooks made there are always limited to that company's own accounts, calls and leads.
+  - Those keys can read data and send leads, but can never change licenses.
+  - If the company has a verified custom domain, the reference shows that domain as its API base URL, so the API is white-labeled too.
 - **Auth:** `Authorization: Bearer acc_…`. Create one key per app in **Super Admin → API**:
   - a **read** key reads data; a **write** key can also send leads and change licenses;
   - a key can be limited to one company;

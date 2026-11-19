@@ -81,9 +81,15 @@ function createOutgoingWebhooks(ctx, deps) {
     return { webhook: publicHook(w), secret };
   }
 
-  async function update(id, input) {
+  // ownerCompanyId: set when a company manages its own webhooks from its console.
+  async function owned(id, ownerCompanyId) {
     const w = await store.get('webhooks', id);
-    if (!w) throw Object.assign(new Error('Webhook not found'), { status: 404 });
+    if (!w || (ownerCompanyId && w.companyId !== ownerCompanyId)) throw Object.assign(new Error('Webhook not found'), { status: 404 });
+    return w;
+  }
+
+  async function update(id, input, ownerCompanyId) {
+    await owned(id, ownerCompanyId);
     const set = {};
     if (input.active !== undefined) set.active = !!input.active;
     if (input.url !== undefined) { const u = validUrl(input.url); if (!u) throw Object.assign(new Error('Use a public https:// URL'), { status: 400 }); set.url = u; }
@@ -94,10 +100,15 @@ function createOutgoingWebhooks(ctx, deps) {
     return publicHook(out);
   }
 
-  async function remove(id) { await store.remove('webhooks', id); invalidate(); }
-  async function list() { return (await store.find('webhooks', {}, { sort: { createdAt: -1 } })).map(publicHook); }
-  async function deliveries(hookId, limit) {
-    const f = hookId ? { hookId } : {};
+  async function remove(id, ownerCompanyId) { await owned(id, ownerCompanyId); await store.remove('webhooks', id); invalidate(); }
+  async function list(ownerCompanyId) { return (await store.find('webhooks', ownerCompanyId ? { companyId: ownerCompanyId } : {}, { sort: { createdAt: -1 } })).map(publicHook); }
+  async function deliveries(hookId, limit, ownerCompanyId) {
+    let f = hookId ? { hookId } : {};
+    if (ownerCompanyId) {
+      const mine = (await store.find('webhooks', { companyId: ownerCompanyId })).map((w) => w._id);
+      if (hookId && !mine.includes(hookId)) return [];
+      if (!hookId) f = { hookId: { $in: mine } };
+    }
     return (await store.find('webhookDeliveries', f, { sort: { createdAt: -1 }, limit: Math.min(200, limit || 50) }))
       .map((d) => ({ id: d._id, hookId: d.hookId, type: d.type, status: d.status, attempts: d.attempts, lastCode: d.lastCode || null, lastError: d.lastError || null, createdAt: d.createdAt, nextAt: d.nextAt || null }));
   }
@@ -157,9 +168,8 @@ function createOutgoingWebhooks(ctx, deps) {
     }
   }
 
-  async function sendTest(id) {
-    const w = await store.get('webhooks', id);
-    if (!w) throw Object.assign(new Error('Webhook not found'), { status: 404 });
+  async function sendTest(id, ownerCompanyId) {
+    const w = await owned(id, ownerCompanyId);
     const evt = { id: 'evt_test_' + randomToken(8), type: 'ping', createdAt: new Date().toISOString(), companyId: w.companyId || null, data: { message: 'Test delivery from AI Call Center' } };
     const d = { _id: 'dlv_' + randomToken(10), hookId: w._id, eventId: evt.id, type: 'ping', body: JSON.stringify(evt), status: 'pending', attempts: MAX_ATTEMPTS - 1, createdAt: new Date().toISOString() };
     await store.put('webhookDeliveries', d);
