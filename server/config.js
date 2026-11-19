@@ -48,6 +48,11 @@ const AGENCY_SCOPES = [
   'users.readonly'
 ].join(' ');
 
+function dbFromUri(uri) {
+  const m = String(uri || '').match(/^mongodb(?:\+srv)?:\/\/[^/]+\/([^/?]+)/);
+  return m ? decodeURIComponent(m[1]) : '';
+}
+
 function load(env) {
   env = env || process.env;
   const vercelUrl = env.VERCEL_PROJECT_PRODUCTION_URL ? 'https://' + env.VERCEL_PROJECT_PRODUCTION_URL : '';
@@ -61,7 +66,9 @@ function load(env) {
     // Vercel's MongoDB Atlas integration names the variable with the project
     // prefix (AI_CALL_CENTER_PLUS_MONGODB_URI); plain MONGODB_URI also works.
     mongoUri: env.AI_CALL_CENTER_PLUS_MONGODB_URI || env.MONGODB_URI || '',
-    mongoDb: env.MONGODB_DB || 'AICallCenter',
+    // Database name: MONGODB_DB if set, else the name in the URI
+    // (mongodb+srv://…/NAME?…), else "AICallCenter". The URI alone is enough.
+    mongoDb: env.MONGODB_DB || dbFromUri(env.AI_CALL_CENTER_PLUS_MONGODB_URI || env.MONGODB_URI) || 'AICallCenter',
     cronSecret: env.CRON_SECRET || '',
     serverless: !!env.VERCEL,
     newInstallStatus: env.NEW_INSTALL_STATUS === 'pending' ? 'pending' : 'active',
