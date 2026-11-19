@@ -19,6 +19,7 @@
    deploy can be resumed and "Redeploy" just updates the agents. */
 const { randomToken } = require('../security');
 const agents = require('./agents');
+const { normalizeOutbound, normalizeFollowUp, normalizeAlerts } = require('./automation');
 
 const AGENCY_STEPS = ['vapi_credential', 'browser_calling'];
 const STEPS = ['twilio_subaccount', 'twilio_number', 'vapi_assistants', 'vapi_squad', 'vapi_number', 'ghl_fields', 'ghl_pipeline', 'portal'];
@@ -27,7 +28,7 @@ const STEP_LABEL = {
   browser_calling: 'Browser takeover line',
   twilio_subaccount: 'Twilio subaccount',
   twilio_number: 'Phone number',
-  vapi_assistants: 'AI agents (Receptionist, Sales, Support)',
+  vapi_assistants: 'AI agents (Receptionist, Sales, Support, Outbound)',
   vapi_squad: 'AI switchboard (Squad routing)',
   vapi_number: 'Connect number to the switchboard',
   ghl_fields: 'CRM custom fields',
@@ -134,6 +135,9 @@ function createProvisioner(ctx) {
     dep.options.country = /^[A-Z]{2}$/.test(dep.options.country) ? dep.options.country : 'US';
     dep.options.areaCode = String(dep.options.areaCode || '').replace(/\D/g, '').slice(0, 3);
     if (input.pipeline) dep.pipeline = normalizePipeline(input.pipeline);
+    dep.outbound = normalizeOutbound(input.outbound, dep.outbound);
+    dep.followUp = normalizeFollowUp(input.followUp, dep.followUp);
+    dep.alerts = normalizeAlerts(input.alerts, dep.alerts);
     await store.put('deployments', dep);
     return dep;
   }
@@ -188,8 +192,9 @@ function createProvisioner(ctx) {
       const vp = Object.assign({ assistantIds: {} }, dep.vapi || {});
       const aOpts = { serverUrl: serverUrl(locationId), serverSecret: secret, model: cfg.openai.agentModel, locationId, companyId: agency._id };
       await runStep(locationId, 'vapi_assistants', async () => {
+        dep = await store.get('deployments', locationId);
         const out = [];
-        for (const role of agents.ROLES) {
+        for (const role of agents.ALL_ROLES) {
           const body = agents.buildAssistant(role, dep.agent, aOpts);
           if (vp.assistantIds[role]) {
             try { await v.updateAssistant(vp.assistantIds[role], body); out.push('updated ' + role); continue; } catch (e) { if (e.status !== 404) throw e; }
@@ -272,7 +277,13 @@ function createProvisioner(ctx) {
     const k = agencySvc.keys(agency);
     const v = vapi.client(k.vapiKey);
     const aOpts = { serverUrl: serverUrl(locationId), serverSecret: sec.decrypt(dep.serverSecret), model: cfg.openai.agentModel, locationId, companyId: agency._id };
-    for (const role of agents.ROLES) await v.updateAssistant(dep.vapi.assistantIds[role], agents.buildAssistant(role, dep.agent, aOpts));
+    const ids = Object.assign({}, dep.vapi.assistantIds);
+    for (const role of agents.ALL_ROLES) {
+      const body = agents.buildAssistant(role, dep.agent, aOpts);
+      if (ids[role]) await v.updateAssistant(ids[role], body);
+      else ids[role] = (await v.createAssistant(body)).id; // e.g. outbound agent added after the first deploy
+    }
+    if (ids.outbound !== dep.vapi.assistantIds.outbound) await store.patch('deployments', locationId, { 'vapi.assistantIds': ids });
     await v.updateSquad(dep.vapi.squadId, agents.buildSquad(dep.agent, dep.vapi.assistantIds));
     await store.log(agency._id, 'agents.updated', dep.name || locationId, { locationId });
   }

@@ -38,7 +38,9 @@ async function seed() {
   const agency = await store.get('agencies', 'comp1');
   await ctx.provisioner.createDeployment(agency, {
     locationId: 'loc1aaaaaaaa', name: 'Bob\'s Plumbing',
-    agent: { businessName: 'Bob\'s Plumbing', industry: 'plumbing', services: 'Water heaters\nDrain cleaning\nLeak repair', calendarId: 'cal1', timezone: 'America/Chicago', transferNumber: '+15125550000' },
+    agent: { businessName: 'Bob\'s Plumbing', industry: 'plumbing', services: 'Water heaters\nDrain cleaning\nLeak repair', calendarId: 'cal1', timezone: 'America/Chicago', transferNumber: '+15125550000', avgJobValue: 450 },
+    outbound: { consent: true, enabled: true, days: ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'], start: '00:00', end: '23:59' },
+    followUp: { enabled: true },
     pipeline: { pipelineId: 'pipe1', stages: { appointment_booked: 'st_booked', qualified_lead: 'st_new' } },
     options: { areaCode: '512' }
   });
@@ -50,7 +52,7 @@ const SCRIPT = [
   ['user', null, 'Hi, this is Jane. My water heater is leaking and I need someone to take a look.'],
   ['assistant', 'Receptionist', 'Sorry to hear that, Jane. Let me get you to our scheduling team.'],
   ['assistant', 'Sales', 'Hi Jane, I can get a technician out. What is the address?'],
-  ['user', null, '1200 Oak Street, Austin.'],
+  ['user', null, '1200 Oak Street, Austin. And if this goes like last time I want a refund.'],
   ['assistant', 'Sales', 'Thanks. I have Tuesday at 9 AM or 10 AM open. Which works better?'],
   ['user', null, 'Nine works.'],
   ['assistant', 'Sales', 'You are booked for Tuesday at 9 AM. You will get a confirmation text shortly. Anything else?'],

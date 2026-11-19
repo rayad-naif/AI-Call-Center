@@ -33,7 +33,7 @@
     root.innerHTML = '';
     const nav = h('nav.tabs', TABS.map(([k, l]) => h('a', { href: '#' + k, class: state.tab === k ? 'active' : '' }, l)));
     const body = h('section.tab-body');
-    root.append(h('div.console-head', h('div', h('h1', state.agency.name), h('p.muted', 'License: ', badge(state.agency.status))), h('a.btn.primary', { href: '/deck' }, 'Open Command Deck')), nav, body);
+    root.append(h('div.console-head', h('div', h('h1', state.agency.name), h('p.muted', 'License: ', badge(state.agency.status))), h('div.row', h('a.btn', { href: '/report' }, 'ROI report'), h('a.btn.primary', { href: '/deck' }, 'Open Command Deck'))), nav, body);
     ({ overview, keys, clients, branding, team, activity })[state.tab](body);
   }
   window.addEventListener('hashchange', () => { state.tab = (location.hash.slice(1) || 'overview').split('/')[0]; if (TABS.some(([k]) => k === state.tab)) render(); });
@@ -144,6 +144,21 @@
     if (crm.error) box.append(h('p.note.err', 'Could not read this sub-account from HighLevel: ' + crm.error));
 
     const form = h('form.form-grid');
+    // Industry template: fills the business and agent fields in one click.
+    const tplSel = h('select', h('option', { value: '' }, 'Choose an industry…'));
+    api('GET', '/api/templates').then((r) => { state.templates = r.templates; r.templates.forEach((t) => tplSel.append(h('option', { value: t.id }, t.label))); }).catch(() => {});
+    const applyTemplate = () => {
+      const t = (state.templates || []).find((x) => x.id === tplSel.value);
+      if (!t) return;
+      const filled = [...form.querySelectorAll('[name]')].some((el) => ['services', 'faq'].includes(el.name) && el.value.trim());
+      if (filled && !confirm('Replace the services, FAQ and agent instructions with the ' + t.label + ' template?')) return;
+      Object.entries(t.agent).forEach(([k, v]) => {
+        if (k === 'extra') Object.entries(v).forEach(([r, txt]) => { const el = form.querySelector('[name="extra.' + r + '"]'); if (el) el.value = txt; });
+        else { const el = form.querySelector('[name="' + k + '"]'); if (el) el.value = v; }
+      });
+      toast(t.label + ' template applied. Review it, then deploy.', 'ok');
+    };
+    form.append(h('div.card.template-bar', field('Start from an industry template', tplSel, 'HVAC, plumbing, roofing, dental, med spa, legal, real estate, solar'), h('button.btn', { type: 'button', on: { click: applyTemplate } }, 'Apply template')));
     // Business
     form.append(h('fieldset.card', h('legend', '1. Business'),
       field('Business name', input('businessName', a.businessName, { required: true })),
@@ -153,10 +168,12 @@
       field('Business hours', input('hours', a.hours)),
       field('Time zone', input('timezone', a.timezone, { placeholder: 'America/New_York' })),
       field('Pricing the AI may share', textarea('pricing', a.pricing, { placeholder: 'e.g. Service call: $89, waived if work is booked' })),
-      field('Support FAQ', textarea('faq', a.faq, { rows: 6, placeholder: 'Q: … A: …' }))));
+      field('Support FAQ', textarea('faq', a.faq, { rows: 6, placeholder: 'Q: … A: …' })),
+      field('Average job value ($)', input('avgJobValue', a.avgJobValue || '', { type: 'number', min: 0, placeholder: 'e.g. 450' }), 'Used for the estimated revenue in the client ROI report.')));
     // Agents
     form.append(h('fieldset.card', h('legend', '2. AI agents'),
       field('Greeting', input('greeting', a.greeting, { placeholder: 'Thanks for calling …, who am I speaking with?' })),
+      field('Language', select('language', state.agency.languages.map((l) => [l.id, l.label]), a.language || 'en'), 'Spanish and bilingual agents use multilingual neural voices (the voice choice below applies to English).'),
       field('Voice', select('voiceId', state.agency.voices.map((v) => [v, v]), a.voiceId)),
       field('Tone', input('tone', a.tone)),
       field('Human transfer number', input('transferNumber', a.transferNumber, { placeholder: '+15551234567' }), 'The AI transfers here when a caller asks for a person or it is an emergency.'),
@@ -164,7 +181,8 @@
       h('details', h('summary', 'Extra instructions per agent'),
         field('Receptionist', textarea('extra.receptionist', (a.extra || {}).receptionist)),
         field('Sales', textarea('extra.sales', (a.extra || {}).sales)),
-        field('Support', textarea('extra.support', (a.extra || {}).support))),
+        field('Support', textarea('extra.support', (a.extra || {}).support)),
+        field('Outbound (speed-to-lead)', textarea('extra.outbound', (a.extra || {}).outbound))),
       h('button.btn.small', { type: 'button', on: { click: () => previewPrompts(form) } }, 'Preview prompts')));
     // CRM
     const calSel = select('calendarId', [['', 'No booking (collect preferred times)']].concat(crm.calendars.map((c) => [c.id, c.name])), a.calendarId || '');
@@ -190,15 +208,59 @@
       field('Preferred area code', input('areaCode', opt.areaCode, { maxlength: 3, placeholder: 'e.g. 512' })),
       h('label.row', h('input', { type: 'checkbox', name: 'useSubaccount', checked: opt.useSubaccount !== false, disabled: !!(dep && dep.phoneNumber) }), ' Separate Twilio subaccount for this client')));
 
+    // 5. Speed-to-lead
+    const D = state.agency.defaults;
+    const ob = (dep && dep.outbound) || D.outbound;
+    const dayBoxes = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].map((d) => h('label.row', h('input', { type: 'checkbox', name: 'ob.day.' + d, checked: (ob.days || []).includes(d) }), ' ' + d[0].toUpperCase() + d.slice(1)));
+    const hookBox = h('div');
+    if (ob.webhookUrl) {
+      const urlIn = h('input', { value: ob.webhookUrl, readonly: true });
+      hookBox.append(field('Webhook URL for your HighLevel workflow', h('div.copy-row', urlIn, h('button.btn.small', { type: 'button', on: { click: () => { urlIn.select(); navigator.clipboard && navigator.clipboard.writeText(urlIn.value); toast('Copied', 'ok'); } } }, 'Copy')),
+        'In the client\'s workflow (trigger: form submitted / new lead), add the action "Custom Webhook", method POST, this URL. Contact fields are sent automatically; add custom data "interest" to tell the AI what they asked about.'));
+    } else hookBox.append(h('p.muted.small', 'Save or deploy to get the webhook URL.'));
+    form.append(h('fieldset.card', h('legend', '5. Speed-to-lead (AI calls new leads)'),
+      h('p.muted.small', 'When a lead comes in, the Outbound agent calls them within seconds, qualifies them and books the appointment. Leads who say "stop calling" are marked Do Not Disturb.'),
+      h('label.row', h('input', { type: 'checkbox', name: 'ob.consent', checked: !!ob.consent }), ' Leads have given consent to be called (e.g. a form with a call-consent checkbox). Required by TCPA and similar laws.'),
+      h('label.row', h('input', { type: 'checkbox', name: 'ob.enabled', checked: !!ob.enabled }), ' Turn on speed-to-lead calling'),
+      h('div.row', field('Calling hours from', input('ob.start', ob.start, { type: 'time' })), field('to', input('ob.end', ob.end, { type: 'time' }))),
+      h('div.row', dayBoxes),
+      h('div.row', field('Attempts per lead', select('ob.maxAttempts', [['1', '1'], ['2', '2'], ['3', '3']], String(ob.maxAttempts))),
+        field('Retry after (minutes)', input('ob.retryMinutes', ob.retryMinutes, { type: 'number', min: 10 })),
+        field('Max calls per day', input('ob.dailyCap', ob.dailyCap, { type: 'number', min: 1 }))),
+      hookBox));
+
+    // 6. SMS follow-up
+    const fu = (dep && dep.followUp) || D.followUp;
+    form.append(h('fieldset.card', h('legend', '6. SMS follow-up after calls'),
+      h('p.muted.small', 'Sent through the sub-account\'s own HighLevel phone number, so replies land in HighLevel Conversations. Variables: {first_name} {business} {appointment_time} {phone}'),
+      h('label.row', h('input', { type: 'checkbox', name: 'fu.enabled', checked: !!fu.enabled }), ' Send follow-up texts'),
+      field('Appointment booked', textarea('fu.booked', fu.booked, { rows: 2 })),
+      field('Missed call / voicemail', textarea('fu.missed', fu.missed, { rows: 2 })),
+      field('Qualified lead (not booked yet)', textarea('fu.lead', fu.lead, { rows: 2 })),
+      field('Support ticket created', textarea('fu.ticket', fu.ticket, { rows: 2 }))));
+
+    // 7. Alerts
+    const al = (dep && dep.alerts) || D.alerts;
+    form.append(h('fieldset.card', h('legend', '7. Live alerts'),
+      h('p.muted.small', 'Alerts flash in the Command Deck with a sound and a browser notification.'),
+      h('label.row', h('input', { type: 'checkbox', name: 'al.enabled', checked: al.enabled !== false }), ' Alerts on'),
+      field('Alert when the caller says', textarea('al.keywords', (al.keywords || []).join(', '), { rows: 2 }), 'Comma separated'),
+      h('div.row', field('Alert when QA score is below', input('al.minScore', al.minScore, { type: 'number', min: 0, max: 100 })),
+        h('label.row', h('input', { type: 'checkbox', name: 'al.negative', checked: al.negative !== false }), ' Alert on unhappy callers'))));
+
     const save = async () => {
       const d = formData(form);
       const agent = { extra: {} };
-      ['businessName', 'industry', 'services', 'serviceArea', 'hours', 'timezone', 'pricing', 'faq', 'greeting', 'voiceId', 'tone', 'transferNumber', 'recordCalls', 'calendarId', 'appointmentMinutes'].forEach((k) => { agent[k] = d[k]; });
-      ['receptionist', 'sales', 'support'].forEach((r) => { agent.extra[r] = d['extra.' + r]; });
+      ['businessName', 'industry', 'services', 'serviceArea', 'hours', 'timezone', 'pricing', 'faq', 'greeting', 'voiceId', 'language', 'tone', 'transferNumber', 'recordCalls', 'calendarId', 'appointmentMinutes', 'avgJobValue'].forEach((k) => { agent[k] = d[k]; });
+      ['receptionist', 'sales', 'support', 'outbound'].forEach((r) => { agent.extra[r] = d['extra.' + r]; });
+      const outbound = { consent: d['ob.consent'], enabled: d['ob.enabled'], start: d['ob.start'], end: d['ob.end'], maxAttempts: d['ob.maxAttempts'], retryMinutes: d['ob.retryMinutes'], dailyCap: d['ob.dailyCap'], days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].filter((x) => d['ob.day.' + x]) };
+      if (outbound.enabled && !outbound.consent) throw new Error('Confirm that leads have consented to be called before turning on speed-to-lead.');
+      const followUp = { enabled: d['fu.enabled'], booked: d['fu.booked'], missed: d['fu.missed'], lead: d['fu.lead'], ticket: d['fu.ticket'] };
+      const alerts = { enabled: d['al.enabled'], keywords: d['al.keywords'], minScore: d['al.minScore'], negative: d['al.negative'] };
       const stages = {};
       state.agency.outcomes.forEach((o) => { if (d['stage.' + o]) stages[o] = d['stage.' + o]; });
       return api('PUT', '/api/deployments/' + encodeURIComponent(locationId), {
-        name: d.businessName, agent, pipeline: { pipelineId: d.pipelineId, stages },
+        name: d.businessName, agent, pipeline: { pipelineId: d.pipelineId, stages }, outbound, followUp, alerts,
         options: { country: (d.country || 'US').toUpperCase(), areaCode: d.areaCode, useSubaccount: d.useSubaccount }
       });
     };
@@ -220,6 +282,17 @@
     const deployBtn = h('button.btn.primary', { type: 'button' }, dep && dep.status === 'live' ? 'Redeploy everything' : (dep && dep.status === 'failed' ? 'Resume deployment' : 'Deploy call center'));
     const updateBtn = h('button.btn', { type: 'button', hidden: !(dep && dep.status === 'live') }, 'Save and update agents only');
     const testBtn = h('button.btn', { type: 'button', hidden: !(dep && dep.status === 'live') }, 'Test call my phone');
+    const leadBtn = h('button.btn', { type: 'button', hidden: !(dep && dep.status === 'live') }, 'Test speed-to-lead');
+    leadBtn.addEventListener('click', async () => {
+      const n = prompt('Send a test lead: your phone number (e.g. +15551234567). The Outbound agent will call it.');
+      if (!n) return;
+      try {
+        await save();
+        await api('POST', '/api/deployments/' + encodeURIComponent(locationId) + '/agents', {});
+        const r = await busy(leadBtn, () => api('POST', '/api/deployments/' + encodeURIComponent(locationId) + '/test-lead', { phone: n, name: 'Test' }));
+        toast(r.status === 'calling' ? 'Calling ' + n + ' now…' : 'Lead ' + r.status + (r.reason ? ': ' + r.reason : ' (calls at ' + new Date(r.callAt).toLocaleString() + ')'), r.status === 'calling' ? 'ok' : 'err');
+      } catch (err) { toast(err.message, 'err'); }
+    });
     const removeBtn = h('button.btn.danger', { type: 'button', hidden: !(dep && ['live', 'failed'].includes(dep.status)) }, 'Remove…');
 
     deployBtn.addEventListener('click', () => busy(deployBtn, async () => {
@@ -233,7 +306,7 @@
           const r = await api('POST', '/api/deployments/' + encodeURIComponent(locationId) + '/deploy', {});
           drawSteps(r.deployment);
           toast('Call center is live on ' + r.deployment.phoneNumber, 'ok');
-          updateBtn.hidden = testBtn.hidden = removeBtn.hidden = false;
+          updateBtn.hidden = testBtn.hidden = leadBtn.hidden = removeBtn.hidden = false;
         } catch (err) {
           if (err.data && err.data.deployment) drawSteps(err.data.deployment);
           toast(err.message, 'err');
@@ -262,13 +335,14 @@
         location.hash = '#clients';
       } catch (err) { toast(err.message, 'err'); }
     });
-    box.append(h('div.editor', form, h('aside', stepsBox, h('div.card.actions', deployBtn, updateBtn, testBtn, removeBtn,
-      h('p.muted.small', 'Deploying creates a Twilio number (billed to your Twilio account), three Vapi assistants, a squad, and CRM fields.')))));
+    box.append(h('div.editor', form, h('aside', stepsBox, h('div.card.actions', deployBtn, updateBtn, testBtn, leadBtn,
+      dep && dep.reportUrl ? h('a.btn', { href: dep.reportUrl }, 'Client ROI report') : null, removeBtn,
+      h('p.muted.small', 'Deploying creates a Twilio number (billed to your Twilio account), four Vapi assistants (three in the inbound squad plus the speed-to-lead caller), a squad, and CRM fields.')))));
   }
 
   async function previewPrompts(form) {
     const d = formData(form);
-    const r = await api('POST', '/api/agents/preview', { agent: Object.assign({}, d, { extra: { receptionist: d['extra.receptionist'], sales: d['extra.sales'], support: d['extra.support'] } }) });
+    const r = await api('POST', '/api/agents/preview', { agent: Object.assign({}, d, { extra: { receptionist: d['extra.receptionist'], sales: d['extra.sales'], support: d['extra.support'], outbound: d['extra.outbound'] } }) });
     const dlg = h('dialog.modal', h('h2', 'Generated prompts'), Object.entries(r.prompts).map(([role, p]) => [h('h3', role), h('pre.prompt', p)]), h('form', { method: 'dialog' }, h('button.btn', 'Close')));
     document.body.append(dlg);
     dlg.addEventListener('close', () => dlg.remove());

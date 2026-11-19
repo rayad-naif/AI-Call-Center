@@ -7,6 +7,12 @@ A HighLevel Marketplace app (Target User: **Agency**) that turns an agency's own
 - **Shadow QA and CRM sync.** Every call is graded (score, sentiment, outcome, summary, next steps, coaching) and written to the HighLevel contact: fields, a note with the transcript and recording link, and tags. The opportunity moves to the pipeline stage mapped to the outcome.
 - **White-label portal.** Agencies set their own name, logo, colors and custom domain. Client users only ever see their own business.
 - **Bring your own keys.** All usage is billed to the agency's own Twilio, Vapi and OpenAI accounts. Keys are checked live and stored encrypted with AES-256-GCM.
+- **Speed-to-lead.** A HighLevel workflow sends each new lead to a webhook, and an Outbound AI agent calls them back within seconds to qualify and book. It only calls during the client's calling hours, retries no-answers, caps calls per day, ignores duplicates, and marks anyone who says "stop calling" as Do Not Disturb.
+- **SMS follow-up.** After each call, a text goes out through the client's own HighLevel number: booking confirmation, "sorry we missed you", lead nurture, or ticket received.
+- **Live alerts.** Watched keywords (refund, lawyer, cancel…), unhappy callers and low QA scores flash in the Command Deck with a sound and a browser notification.
+- **ROI report and CSV export.** A white-labeled, printable report per client: calls, bookings, estimated revenue, return on AI cost, after-hours calls, staff hours saved, outcomes, busiest hours and speed-to-lead stats.
+- **Industry templates.** HVAC, plumbing, roofing, dental, med spa, legal intake, real estate and solar fill a client's setup in one click.
+- **Spanish and bilingual agents.** English, Spanish, or automatic English/Spanish switching.
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for how it works and why it is built this way.
 
@@ -21,6 +27,15 @@ npm run demo
 ```
 
 Open http://localhost:3000/login and sign in as `demo@example.com` with password `demo-password`. The demo simulates Twilio, Vapi, HighLevel and OpenAI. It deploys a sample client and plays a scripted live call every 45 seconds, so you can watch the deck, whisper, and see the QA grade and CRM sync appear. Listen and takeover need a real call.
+
+## Speed-to-lead setup (per client)
+
+1. In the client's deploy form, tick the consent box (leads must have agreed to be called), turn on speed-to-lead, set calling hours, attempts and a daily cap, and deploy or click **Save and update agents only**.
+2. Copy the **Webhook URL** shown in that section.
+3. In the client's HighLevel workflow (for example, trigger "Form submitted"), add the action **Custom Webhook**, method POST, with that URL. HighLevel sends the contact's phone, name and id automatically. Add custom data `interest` (for example "{{contact.service}}") to tell the AI what the lead asked about.
+4. Use **Test speed-to-lead** to have the agent call your own phone.
+
+Leads that arrive outside calling hours wait for the next opening. Retries and queued leads are placed by the sweep, which runs every 10 minutes on Vercel Pro and once a day on Hobby (`vercel.json`). Leads that arrive during calling hours are always called at once.
 
 ## Pages
 
@@ -39,6 +54,8 @@ Open http://localhost:3000/login and sign in as `demo@example.com` with password
 | Vapi server URL (set automatically) | `/webhooks/vapi/<locationId>` |
 | Twilio takeover line / TwiML app (set automatically) | `/twilio/voice/takeover`, `/twilio/voice/outbound` |
 | Cron (Vercel, every 10 min) | `/api/cron/sweep` |
+| Speed-to-lead webhook (shown per client) | `/hooks/lead/<locationId>/<key>` |
+| ROI report / CSV | `/report?location=…&days=30`, `/api/reports/calls.csv` |
 
 ## How agencies use it
 
@@ -55,7 +72,7 @@ Open http://localhost:3000/login and sign in as `demo@example.com` with password
 | Twilio (once per agency) | API key, TwiML app and a "takeover line" number, used for browser takeover |
 | Twilio (per client) | Subaccount and a local number (preferred area code) |
 | Vapi (once per agency) | The agency's OpenAI key as a provider credential, so LLM usage bills to them |
-| Vapi (per client) | Receptionist, Sales and Support assistants, a Squad with handoff routes, and the imported number pointing at the Squad |
+| Vapi (per client) | Receptionist, Sales and Support assistants, a Squad with handoff routes, the imported number pointing at the Squad, and an Outbound (speed-to-lead) assistant |
 | HighLevel (per client) | Contact custom fields: AI Call Summary, AI Sentiment, AI Call Score, AI Call Outcome, AI Next Steps, Last AI Call Recording, Last AI Call |
 
 HighLevel's API cannot create pipelines, so put a voice pipeline in your snapshot and map outcomes onto it in the deploy form.
@@ -76,7 +93,7 @@ HighLevel's API cannot create pipelines, so put a voice pipeline in your snapsho
 - Webhook URL: `${BASE_URL}/webhooks/ghl` with INSTALL and UNINSTALL events
 - SSO: generate the Shared Secret and set `GHL_SSO_KEY`. Add a custom page (or custom menu link for sub-accounts) pointing to `${BASE_URL}/embed`.
 - Scopes (the default `GHL_SCOPES`):
-  `companies.readonly locations.readonly oauth.readonly oauth.write contacts.readonly contacts.write opportunities.readonly opportunities.write calendars.readonly calendars/events.readonly calendars/events.write locations/customFields.readonly locations/customFields.write users.readonly`
+  `companies.readonly locations.readonly oauth.readonly oauth.write contacts.readonly contacts.write opportunities.readonly opportunities.write calendars.readonly calendars/events.readonly calendars/events.write locations/customFields.readonly locations/customFields.write users.readonly conversations.readonly conversations/message.write`
 - Pricing: a one-time install fee through Marketplace billing. `NEW_INSTALL_STATUS=pending` lets you approve each agency manually in Super Admin instead.
 
 ## Deploy (Vercel + MongoDB Atlas)
@@ -118,6 +135,9 @@ With `MONGODB_URI` empty, data goes to `./data/store.json`. To run the tests aga
 - `server/services/qa.js`: the grader and HighLevel sync, with retries
 - `server/services/tools.js`: calendar, booking, lookup and ticket tools for the agents
 - `server/services/branding.js`: white-label branding and custom domains
+- `server/services/automation.js`: speed-to-lead, SMS follow-up and live alerts
+- `server/services/reports.js`: ROI report and CSV export
+- `server/services/templates.js`: industry templates
 - `server/auth.js`: sessions, roles and data scoping
 - `server/routes/`: HTTP routes. `server/views/`: server-rendered shells
 - `public/`: browser apps (`console.js`, `deck.js`, `audio.js`, `embed.js`, `admin.js`)
@@ -131,4 +151,6 @@ The provider APIs are exercised here against faithful fakes. A few behaviours de
 - **Listen audio format.** Vapi's listen socket sends raw 16-bit PCM. The deck defaults to 16 kHz mono, and the format picker next to **Listen** switches it if audio sounds too fast or slow.
 - **Takeover caller ID.** Vapi's transfer reaches the takeover line with the caller's number when Vapi passes it through. Otherwise the most recent pending takeover is used, which only matters if two supervisors take over within the same few seconds.
 - **Third-party cookies.** Inside the HighLevel iframe, the session cookie is `SameSite=None; Secure; Partitioned`. Browsers that block all iframe cookies need the standalone `/login`.
-- **Compliance.** Call recording consent and TCPA rules are the agency's responsibility. The Terms page says so.
+- **Compliance.** Call recording consent and TCPA rules are the agency's responsibility. The Terms page says so. Speed-to-lead cannot be turned on without the consent checkbox.
+- **SMS.** Follow-up texts go through the sub-account's HighLevel phone, so that sub-account needs SMS (LC Phone or Twilio) set up in HighLevel. Existing installs must re-authorize to grant the new `conversations/message.write` scope.
+- **Spanish voices.** Spanish and bilingual agents use Azure neural voices through Vapi. Confirm they're enabled on your Vapi account.

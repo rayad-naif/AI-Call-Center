@@ -34,6 +34,12 @@ Sell a one-time license without paying for anyone's call traffic. The server nev
 | Listen and barge-in through the Twilio SDK | **Listen:** Vapi `listenUrl` WebSocket straight to the browser. **Whisper:** `add-message`. **Takeover:** Vapi transfer to a takeover line, which rings the supervisor's browser through the Twilio Voice SDK | Once Vapi answers, the audio runs between Twilio and Vapi, and a browser cannot join that media stream directly. |
 | WebSockets for live transcripts | Short polling (1.5 s, configurable) | It works on serverless with no extra service. For sub-second updates, Pusher or Ably could be added later. |
 
+## Revenue features
+
+- **Speed-to-lead:** `POST /hooks/lead/:locationId/:key` (the key is per client and secret) creates a `leads` record. Inside calling hours, the call is placed at once through Vapi `POST /call` using the Outbound assistant, with `variableValues` (name, interest) and `metadata.leadId`. The end-of-call report links back through `metadata.leadId`: no-answers are re-queued after `retryMinutes` until `maxAttempts`, and everything else is closed. Queued leads and retries are placed by the cron sweep, with a daily cap, 24-hour de-dupe and a Do-Not-Disturb check on the contact.
+- **SMS follow-up:** runs after the CRM sync through `POST /conversations/messages` (type SMS) on the location token. The result is stored in `sync.sms`, so a retried sync never texts twice.
+- **Alerts:** a final caller line containing a watched keyword raises a `keyword` alert, once per keyword per call. After grading, a low score, negative sentiment or a grader flag raises `qa` alerts. The deck plays a sound and shows a browser notification for alerts it has not seen before.
+
 ## Data
 
 MongoDB collections (the JSON file store mirrors them for development):
@@ -43,6 +49,7 @@ MongoDB collections (the JSON file store mirrors them for development):
 - `calls` (`_id` = Vapi call id): status, current agent, transcript (last 600 lines), partial line, whispers, monitor URLs (encrypted), takeover state, recording link, grade, sync state. A TTL index removes calls after `CALL_RETENTION_DAYS`.
 - `users`: agency staff and client logins (scrypt hashes, `sessionVersion` for revocation).
 - `takeovers`: pending takeovers, with a 2-minute TTL.
+- `leads`: speed-to-lead queue and outcomes, with a 90-day TTL.
 - `domains`: custom portal host → companyId.
 - `events`: activity log, with a 180-day TTL.
 

@@ -49,11 +49,19 @@ const consolePage = (req) => page(req, {
 
 const deck = (req, opts) => page(req, {
   title: 'Command Deck', mainClass: 'deck-shell', bodyClass: 'deck',
-  nav: (opts.agency ? '<a href="/app">Agency console</a>' : '') + '<span id="voice-status" class="pill" hidden></span><button class="link" data-logout>Sign out</button>',
+  nav: (opts.agency ? '<a href="/app">Agency console</a>' : '') + '<a href="/report' + (opts.location ? '?location=' + encodeURIComponent(opts.location) : '') + '" id="report-link">Report</a><span id="voice-status" class="pill" hidden></span><button class="link" data-logout>Sign out</button>',
   body: '<div id="deck"><div class="spinner"></div></div>',
   footer: false,
   data: { twilioSdk: TWILIO_SDK, location: opts.location || '' },
   scripts: ['/static/audio.js', '/static/deck.js']
+});
+
+const report = (req, opts) => page(req, {
+  title: 'Call center report', mainClass: 'container report-page', bodyClass: 'report',
+  nav: (opts.agency ? '<a href="/app">Agency console</a>' : '') + '<a href="/deck">Command Deck</a><button class="link" data-print>Print / PDF</button>',
+  body: '<div id="report"><div class="spinner"></div></div>',
+  data: { location: opts.location, days: opts.days },
+  scripts: ['/static/report.js']
 });
 
 const adminLogin = (req) => page(req, {
@@ -106,6 +114,9 @@ function docs(req, cfg) {
       '<li><strong>Vapi:</strong> your OpenAI key as a provider credential, three assistants (Receptionist, Sales, Support), a Squad that hands calls between them, and the imported phone number.</li>' +
       '<li><strong>HighLevel:</strong> contact custom fields (AI Call Summary, AI Sentiment, AI Call Score, AI Call Outcome, AI Next Steps, Last AI Call Recording, Last AI Call). Pipelines cannot be created through the HighLevel API, so map outcomes onto an existing pipeline (include one in your snapshot).</li>' +
       '</ul>' +
+      '<h2>Speed-to-lead</h2><p>Turn it on in a client\'s deploy form (leads must have consented to be called), then add a <em>Custom Webhook</em> action to the client\'s HighLevel workflow using the URL shown there. The Outbound agent calls each new lead within seconds during calling hours, retries no-answers, and marks anyone who asks not to be called as Do Not Disturb.</p>' +
+      '<h2>SMS follow-up and alerts</h2><p>After a call, the client\'s HighLevel number can text a booking confirmation, a missed-call note, a lead nurture message or a ticket receipt. Keywords, unhappy callers and low QA scores raise alerts in the Command Deck.</p>' +
+      '<h2>Reports</h2><p>Every client has a white-labeled ROI report (calls, bookings, estimated revenue, return on AI cost, after-hours calls) that can be printed to PDF, plus a CSV export of every call.</p>' +
       '<h2>After every call</h2><p>The call is graded with your OpenAI key (score, sentiment, outcome, summary, next steps, coaching). The contact is found or created by caller ID, the AI fields are filled in, a note with the summary, recording link and transcript is added, outcome tags are applied, and the opportunity moves to the stage mapped to the outcome. Failed syncs retry automatically.</p>' +
       '<h2>Client access</h2><p>Add the app as a custom menu link in sub-accounts: inside a sub-account the app signs the user in to that location only. You can also create client logins under <em>Team</em>, and serve the portal from your own domain under <em>Branding</em> (CNAME to <code>' + esc(cfg.baseHost) + '</code>).</p>' +
       '<h2>Roles</h2><ul><li><strong>Owner / Admin:</strong> keys, deployments, branding, team.</li><li><strong>Manager:</strong> command deck with listen, whisper and takeover.</li><li><strong>Viewer:</strong> command deck, read only.</li></ul>' +
@@ -141,4 +152,4 @@ function legal(req, cfg, kind) {
   return page(req, { title: kind === 'privacy' ? 'Privacy' : 'Terms', body: '<article class="prose">' + body + '</article>' });
 }
 
-module.exports = { message, login, setup, embed, consolePage, deck, adminLogin, admin, landing, docs, legal, TWILIO_SDK };
+module.exports = { message, login, setup, embed, consolePage, deck, report, adminLogin, admin, landing, docs, legal, TWILIO_SDK };

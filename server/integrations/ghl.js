@@ -72,7 +72,10 @@ function createGhl(cfg, fetchImpl) {
       updateContact: (id, c) => call('PUT', '/contacts/' + encodeURIComponent(id), c),
       addTags: (id, tags) => call('POST', '/contacts/' + encodeURIComponent(id) + '/tags', { tags }),
       addNote: (id, body) => call('POST', '/contacts/' + encodeURIComponent(id) + '/notes', { body }),
-      upsertOpportunity: (o) => call('POST', '/opportunities/upsert', o)
+      upsertOpportunity: (o) => call('POST', '/opportunities/upsert', o),
+      // Text through the sub-account's own HighLevel phone (LC Phone / Twilio).
+      sendSms: (contactId, message) => call('POST', '/conversations/messages', { type: 'SMS', contactId, message }),
+      setDnd: (id) => call('PUT', '/contacts/' + encodeURIComponent(id), { dnd: true })
     };
   }
 

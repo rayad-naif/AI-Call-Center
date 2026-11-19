@@ -5,9 +5,9 @@
 function createFakes() {
   const log = [];
   const state = {
-    vapi: { assistants: {}, squads: {}, numbers: {}, credentials: [], controls: [] },
+    vapi: { assistants: {}, squads: {}, numbers: {}, credentials: [], controls: [], calls: [] },
     twilio: { subaccounts: {}, numbers: {}, keys: 0, apps: 0 },
-    ghl: { fields: [], contacts: {}, notes: [], opportunities: [], appointments: [], tags: [] },
+    ghl: { fields: [], contacts: {}, notes: [], opportunities: [], appointments: [], tags: [], sms: [], dnd: {} },
     openaiCalls: 0
   };
   let id = 0;
@@ -59,7 +59,7 @@ function createFakes() {
       if (p === '/phone-number' && method === 'POST') { const n = Object.assign({ id: nid('pn_') }, body); state.vapi.numbers[n.id] = n; return json(201, n); }
       if ((m = p.match(/^\/phone-number\/(.+)$/))) { if (method === 'DELETE') delete state.vapi.numbers[m[1]]; else Object.assign(state.vapi.numbers[m[1]], body); return json(200, {}); }
       if (p === '/credential' && method === 'POST') { state.vapi.credentials.push(body); return json(201, { id: 'cred_1' }); }
-      if (p === '/call' && method === 'POST') return json(201, { id: 'call_out_1' });
+      if (p === '/call' && method === 'POST') { state.vapi.calls.push(body); return json(201, { id: 'call_out_' + state.vapi.calls.length }); }
       return json(404, { message: 'no route ' + p });
     }
     if (u.host === 'control.vapi.test') { state.vapi.controls.push({ path: p, body }); return json(200, { ok: true }); }
@@ -96,6 +96,11 @@ function createFakes() {
       if (p === '/contacts/search/duplicate') return json(200, { contact: { id: 'contact_x', firstName: 'Jane', lastName: 'Doe' } });
       if ((m = p.match(/^\/contacts\/(\w+[^/]*)\/notes$/))) { state.ghl.notes.push({ contactId: m[1], body: body.body }); return json(201, {}); }
       if ((m = p.match(/^\/contacts\/(\w+[^/]*)\/tags$/))) { state.ghl.tags.push({ contactId: m[1], tags: body.tags }); return json(201, {}); }
+      if (p === '/conversations/messages' && method === 'POST') { state.ghl.sms.push(body); return json(201, { messageId: 'm' + state.ghl.sms.length }); }
+      if ((m = p.match(/^\/contacts\/([^/]+)$/)) && m[1] !== 'upsert') {
+        if (method === 'PUT') { if (body.dnd !== undefined) state.ghl.dnd[m[1]] = body.dnd; return json(200, { contact: { id: m[1] } }); }
+        return json(200, { contact: { id: m[1], dnd: !!state.ghl.dnd[m[1]], tags: [] } });
+      }
       if (p === '/opportunities/upsert') { state.ghl.opportunities.push(body); return json(200, { opportunity: { id: 'opp1' } }); }
       return json(404, { message: 'no route ' + p });
     }

@@ -5,6 +5,7 @@ const { randomToken, hashPassword } = require('../security');
 const { ROLES } = require('../auth');
 const { STEPS, AGENCY_STEPS, STEP_LABEL, OUTCOMES, normalizePipeline } = require('../services/provisioner');
 const agents = require('../services/agents');
+const { normalizeOutbound, normalizeFollowUp, normalizeAlerts } = require('../services/automation');
 
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{2,}$/;
 
@@ -21,6 +22,9 @@ module.exports = function (app, ctx) {
       twilioSubaccount: (d.twilio && d.twilio.accountSid) || '',
       vapi: d.vapi ? { squadId: d.vapi.squadId || '', assistantIds: d.vapi.assistantIds || {}, phoneNumberId: d.vapi.phoneNumberId || '' } : {},
       agent: d.agent, options: d.options, pipeline: d.pipeline || { pipelineId: '', stages: {} },
+      outbound: d.outbound ? Object.assign({}, d.outbound, { key: undefined, webhookUrl: cfg.baseUrl + '/hooks/lead/' + encodeURIComponent(d._id) + '/' + d.outbound.key }) : null,
+      followUp: d.followUp || null, alerts: d.alerts || null,
+      reportUrl: cfg.baseUrl + '/report?location=' + encodeURIComponent(d._id),
       fieldIds: d.fieldIds || {},
       steps: [].concat(AGENCY_STEPS, STEPS).map((k) => Object.assign({ key: k, label: STEP_LABEL[k] }, (d.steps || {})[k] || { status: 'pending' })),
       portalUrl: cfg.baseUrl + '/deck?location=' + encodeURIComponent(d._id),
@@ -45,7 +49,9 @@ module.exports = function (app, ctx) {
       branding: Object.assign({}, branding.normalizeBranding({}, a.branding || {}), { domain: (a.branding && a.branding.domain) || '' }),
       domainVerified: !!(a.branding && a.branding.domain && ((await store.get('domains', a.branding.domain)) || {}).verified),
       appHost: cfg.baseHost,
-      voices: agents.VOICES, outcomes: OUTCOMES
+      voices: agents.VOICES, outcomes: OUTCOMES,
+      languages: Object.entries(agents.LANGUAGES).map(([id, l]) => ({ id, label: l.label })),
+      defaults: { outbound: normalizeOutbound({}), followUp: normalizeFollowUp({}), alerts: normalizeAlerts({}) }
     });
   }));
 
@@ -156,6 +162,9 @@ module.exports = function (app, ctx) {
     if (!d || d.companyId !== req.agency._id) throw httpError(404, 'Not found');
     if (req.body.agent) await store.patch('deployments', d._id, { agent: agents.normalizeAgent(req.body.agent, d.agent) });
     if (req.body.pipeline) await store.patch('deployments', d._id, { pipeline: normalizePipeline(req.body.pipeline) });
+    if (req.body.outbound) await store.patch('deployments', d._id, { outbound: normalizeOutbound(req.body.outbound, d.outbound) });
+    if (req.body.followUp) await store.patch('deployments', d._id, { followUp: normalizeFollowUp(req.body.followUp, d.followUp) });
+    if (req.body.alerts) await store.patch('deployments', d._id, { alerts: normalizeAlerts(req.body.alerts, d.alerts) });
     await provisioner.updateAgents(req.agency, d._id);
     res.json({ deployment: publicDeployment(await store.get('deployments', d._id)) });
   }));

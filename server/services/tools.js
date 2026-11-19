@@ -75,6 +75,16 @@ function createToolService(ctx) {
       return 'Found customer ' + name + (c.address1 ? ', address ' + c.address1 : '') + (c.tags && c.tags.length ? '. Tags: ' + c.tags.slice(0, 5).join(', ') : '') + '.';
     },
 
+    async mark_do_not_call(args, env) {
+      const phone = (env.call.customer && env.call.customer.number) || '';
+      const contact = await env.api.upsertContact({ locationId: env.dep._id, phone, source: 'AI Call Center' });
+      const contactId = contact && (contact.id || contact._id);
+      await env.api.setDnd(contactId).catch(() => {});
+      await env.api.addTags(contactId, ['ai-do-not-call']).catch(() => {});
+      await store.log(env.dep.companyId, 'lead.do_not_call', phone, { locationId: env.dep._id });
+      return 'Done. Confirm they will not be called again, thank them, and end the call.';
+    },
+
     async create_support_ticket(args, env) {
       const phone = (env.call.customer && env.call.customer.number) || '';
       const contact = await env.api.upsertContact({ locationId: env.dep._id, phone, source: 'AI Call Center' });

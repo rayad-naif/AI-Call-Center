@@ -4,8 +4,17 @@
    deployment's `agent` settings so redeploying updates every assistant. */
 
 const VOICES = ['Elliot', 'Kylie', 'Rohan', 'Lily', 'Savannah', 'Hana', 'Neha', 'Cole', 'Harry', 'Paige', 'Spencer'];
-const ROLES = ['receptionist', 'sales', 'support'];
-const ROLE_LABEL = { receptionist: 'Receptionist', sales: 'Sales', support: 'Support' };
+const ROLES = ['receptionist', 'sales', 'support'];          // inbound squad members
+const ALL_ROLES = ROLES.concat('outbound');                   // + speed-to-lead caller
+const ROLE_LABEL = { receptionist: 'Receptionist', sales: 'Sales', support: 'Support', outbound: 'Outbound' };
+
+/* Languages. Vapi's built-in voices are English; Spanish and multilingual use
+   Azure neural voices (included in Vapi, no extra key). */
+const LANGUAGES = {
+  en: { label: 'English', transcriber: { provider: 'deepgram', model: 'nova-2', language: 'en' } },
+  es: { label: 'Spanish', transcriber: { provider: 'deepgram', model: 'nova-2', language: 'es' }, voice: { provider: 'azure', voiceId: 'es-US-PalomaNeural' }, prompt: 'Always speak Spanish.' },
+  multi: { label: 'English + Spanish (auto)', transcriber: { provider: 'deepgram', model: 'nova-3', language: 'multi' }, voice: { provider: 'azure', voiceId: 'en-US-AvaMultilingualNeural' }, prompt: 'Reply in the language the caller speaks (English or Spanish), and switch if they switch.' }
+};
 
 const DEFAULT_AGENT = {
   businessName: '',
@@ -23,14 +32,15 @@ const DEFAULT_AGENT = {
   calendarId: '',
   appointmentMinutes: 60,
   greeting: '',
-  extra: { receptionist: '', sales: '', support: '' },
-  recordCalls: true
+  extra: { receptionist: '', sales: '', support: '', outbound: '' },
+  recordCalls: true,
+  avgJobValue: 0
 };
 
 function normalizeAgent(input, base) {
   const a = Object.assign({}, DEFAULT_AGENT, base || {});
   const str = (v, max) => String(v == null ? '' : v).slice(0, max);
-  ['businessName', 'industry', 'serviceArea', 'hours', 'timezone', 'tone', 'language', 'greeting', 'calendarId'].forEach((k) => {
+  ['businessName', 'industry', 'serviceArea', 'hours', 'timezone', 'tone', 'greeting', 'calendarId'].forEach((k) => {
     if (input[k] !== undefined) a[k] = str(input[k], 300).trim();
   });
   ['services', 'faq', 'pricing'].forEach((k) => { if (input[k] !== undefined) a[k] = str(input[k], 8000); });
@@ -41,9 +51,11 @@ function normalizeAgent(input, base) {
   }
   if (input.appointmentMinutes !== undefined) a.appointmentMinutes = Math.min(480, Math.max(15, Number(input.appointmentMinutes) || 60));
   if (input.recordCalls !== undefined) a.recordCalls = !!input.recordCalls;
+  if (input.language !== undefined) a.language = LANGUAGES[input.language] ? input.language : 'en';
+  if (input.avgJobValue !== undefined) a.avgJobValue = Math.max(0, Math.min(1e6, Math.round(Number(input.avgJobValue) || 0)));
   if (input.extra && typeof input.extra === 'object') {
     a.extra = Object.assign({}, DEFAULT_AGENT.extra, a.extra || {});
-    ROLES.forEach((r) => { if (input.extra[r] !== undefined) a.extra[r] = str(input.extra[r], 6000); });
+    ALL_ROLES.forEach((r) => { if (input.extra[r] !== undefined) a.extra[r] = str(input.extra[r], 6000); });
   }
   return a;
 }
@@ -58,6 +70,7 @@ function sharedContext(a) {
     'Voice style: ' + a.tone + '. This is a phone call: keep every reply to one or two short sentences, ask one question at a time, never read out lists, URLs or markdown.',
     'Never invent prices, availability, policies or promises. If you do not know, say a team member will follow up.',
     'If the caller asks for a human, is upset, or it is an emergency' + (a.transferNumber ? ', use the transferCall tool.' : ', take a message and promise a fast callback.'),
+    (LANGUAGES[a.language] || {}).prompt || '',
     'Today is {{"now" | date: "%A, %B %d, %Y %I:%M %p", "' + a.timezone + '"}}.'
   ].filter(Boolean).join('\n\n');
 }
@@ -84,7 +97,16 @@ const ROLE_PROMPT = {
     'The caller is an existing customer. Use lookup_customer to find their record by phone number.',
     'Answer from the FAQ below. For anything you cannot resolve (refunds, disputes, specific invoices, damage), use create_support_ticket so the team follows up, and tell the caller when to expect a callback.',
     a.faq ? 'FAQ:\n' + a.faq : 'There is no FAQ yet: take detailed notes and create a support ticket.'
-  ].join('\n')
+  ].join('\n'),
+  outbound: (a) => [
+    '# Role: Speed-to-lead outbound caller',
+    'You are calling {{name}} back within minutes of them reaching out to ' + (a.businessName || 'the business') + (a.industry ? '' : '') + '. They asked about: {{interest}}.',
+    'Open by confirming you are speaking with {{name}} and that now is a good time. If not, ask when to call back and end politely.',
+    'If you reach voicemail, leave a short message with the business name and that you are returning their request, then end the call.',
+    'Qualify briefly (what they need, where, how urgent), then use check_availability and book_appointment to book a visit or consultation.',
+    'If they ask to stop being called, apologize, confirm they will not be called again, and end the call.',
+    a.calendarId ? '' : 'No booking calendar is connected: collect preferred times and say the office will confirm.'
+  ].filter(Boolean).join('\n')
 };
 
 function systemPrompt(role, a) {
@@ -93,6 +115,7 @@ function systemPrompt(role, a) {
 
 function firstMessage(role, a) {
   if (role === 'receptionist') return a.greeting || ('Thanks for calling ' + (a.businessName || 'us') + ', this is the virtual assistant. Who do I have the pleasure of speaking with?');
+  if (role === 'outbound') return 'Hi, is this {{name}}? This is the virtual assistant from ' + (a.businessName || 'our office') + ', returning your request from a few minutes ago.';
   return ''; // handoff members continue the conversation
 }
 
@@ -114,7 +137,7 @@ function functionTool(name, description, properties, required, server) {
 
 function toolsFor(role, a, server) {
   const tools = [];
-  if (role === 'sales') {
+  if (role === 'sales' || role === 'outbound') {
     tools.push(functionTool('check_availability', 'Find open appointment times. Call before offering any time to the caller.', {
       from_date: { type: 'string', description: 'First day to search, YYYY-MM-DD. Defaults to today.' },
       days: { type: 'number', description: 'How many days to search (1-14). Defaults to 5.' }
@@ -136,6 +159,9 @@ function toolsFor(role, a, server) {
       urgency: { type: 'string', enum: ['low', 'normal', 'high', 'emergency'] }
     }, ['issue'], server));
   }
+  if (role === 'outbound') {
+    tools.push(functionTool('mark_do_not_call', 'The person asked not to be called again. Call this, confirm, then end the call.', {}, [], server));
+  }
   if (a.transferNumber) {
     tools.push({
       type: 'transferCall',
@@ -156,7 +182,7 @@ function buildAssistant(role, a, opts) {
   const assistant = {
     name: memberName(role, a),
     firstMessage: firstMessage(role, a),
-    firstMessageMode: role === 'receptionist' ? 'assistant-speaks-first' : 'assistant-speaks-first-with-model-generated-message',
+    firstMessageMode: role === 'receptionist' || role === 'outbound' ? 'assistant-speaks-first' : 'assistant-speaks-first-with-model-generated-message',
     model: {
       provider: 'openai',
       model: opts.model,
@@ -164,8 +190,8 @@ function buildAssistant(role, a, opts) {
       messages: [{ role: 'system', content: systemPrompt(role, a) }],
       tools: toolsFor(role, a, server)
     },
-    voice: { provider: 'vapi', voiceId: a.voiceId || 'Elliot' },
-    transcriber: { provider: 'deepgram', model: 'nova-2', language: a.language || 'en' },
+    voice: (LANGUAGES[a.language] || LANGUAGES.en).voice || { provider: 'vapi', voiceId: a.voiceId || 'Elliot' },
+    transcriber: (LANGUAGES[a.language] || LANGUAGES.en).transcriber,
     server,
     serverMessages: serverMessages(),
     monitorPlan: { listenEnabled: true, controlEnabled: true },
@@ -198,4 +224,4 @@ function buildSquad(a, assistantIds, opts) {
   };
 }
 
-module.exports = { VOICES, ROLES, ROLE_LABEL, DEFAULT_AGENT, normalizeAgent, systemPrompt, buildAssistant, buildSquad, memberName, toolsFor };
+module.exports = { VOICES, ROLES, ALL_ROLES, LANGUAGES, ROLE_LABEL, DEFAULT_AGENT, normalizeAgent, systemPrompt, buildAssistant, buildSquad, memberName, toolsFor };

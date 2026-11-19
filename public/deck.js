@@ -10,7 +10,8 @@
   const S = {
     me: null, deployments: [], location: B.location || '', view: 'live',
     calls: [], selected: null, detail: null, lines: [], listener: null,
-    device: null, activeCall: null, pollMs: 1500, timers: []
+    device: null, activeCall: null, pollMs: 1500, timers: [],
+    seenAlerts: null, sound: true
   };
   const canControl = () => S.me && ['manager', 'admin', 'owner'].includes(S.me.user.role);
   const q = () => (S.location ? '?location=' + encodeURIComponent(S.location) : '');
@@ -28,7 +29,7 @@
     el.history = h('div.grid-list', { hidden: true });
     el.detail = h('section.detail');
     root.append(
-      h('div.deck-head', h('div.row', h('h1', 'Command Deck'), h('span.live-dot', { title: 'Live' })), h('div.row', S.deployments.length > 1 ? el.locSel : null, el.tabs)),
+      h('div.deck-head', h('div.row', h('h1', 'Command Deck'), h('span.live-dot', { title: 'Live' })), h('div.row', alertToggle(), S.deployments.length > 1 ? el.locSel : null, el.tabs)),
       el.stats,
       h('div.deck-body', h('aside.calls', el.grid, el.history), el.detail)
     );
@@ -44,19 +45,56 @@
   }
 
   /* ---------- live grid ---------- */
+  /* ---------- alerts: sound + browser notification for new ones ---------- */
+  function alertToggle() {
+    const perm = window.Notification ? Notification.permission : 'denied';
+    const b = h('button.btn.small', { title: 'Alerts for keywords, unhappy callers and low QA scores', on: { click: async () => {
+      if (window.Notification && Notification.permission === 'default') await Notification.requestPermission();
+      S.sound = !S.sound || (window.Notification && Notification.permission === 'granted');
+      b.textContent = S.sound ? '🔔 Alerts on' : '🔕 Alerts muted';
+    } } }, S.sound ? (perm === 'granted' ? '🔔 Alerts on' : '🔔 Enable alert pop-ups') : '🔕 Alerts muted');
+    return b;
+  }
+  function beep() {
+    try {
+      const a = new (window.AudioContext || window.webkitAudioContext)();
+      [0, 0.18].forEach((t) => { const o = a.createOscillator(); const g = a.createGain(); o.frequency.value = 880; g.gain.value = 0.08; o.connect(g); g.connect(a.destination); o.start(a.currentTime + t); o.stop(a.currentTime + t + 0.12); });
+      setTimeout(() => a.close(), 600);
+    } catch (e) { /* no audio */ }
+  }
+  function checkAlerts(calls) {
+    const first = !S.seenAlerts;
+    if (first) S.seenAlerts = new Set();
+    calls.forEach((c) => (c.alerts || []).forEach((al) => {
+      if (S.seenAlerts.has(al.id)) return;
+      S.seenAlerts.add(al.id);
+      if (first || !S.sound) return;
+      beep();
+      const who = c.customer.name || c.customer.number || 'Caller';
+      toast('⚠ ' + who + ': ' + al.text, 'err');
+      if (window.Notification && Notification.permission === 'granted' && document.hidden) {
+        const n = new Notification('Call alert: ' + who, { body: al.text, tag: al.id });
+        n.onclick = () => { window.focus(); select(c.id); n.close(); };
+      }
+    }));
+  }
+
   async function refreshGrid() {
     try {
       const r = await api('GET', '/api/live/calls' + q());
       S.calls = r.calls;
+      checkAlerts(r.calls);
       drawGrid();
     } catch (e) { /* transient */ }
   }
   function card(c, onClick) {
     const dur = c.endedAt ? (c.durationSec || (Date.parse(c.endedAt) - Date.parse(c.answeredAt || c.createdAt)) / 1000) : since(c.answeredAt || c.createdAt);
-    return h('button.call-card', { class: S.selected === c.id ? 'sel' : '', role: 'listitem', on: { click: onClick } },
+    const alerting = (c.alerts || []).length > 0;
+    return h('button.call-card', { class: (S.selected === c.id ? 'sel ' : '') + (alerting && c.status !== 'ended' ? 'alerting' : ''), role: 'listitem', on: { click: onClick } },
       h('div.row-between', h('strong', c.customer.name || c.customer.number || 'Unknown caller'), h('span.mono', fmtDur(dur))),
       h('div.row', h('span.badge.agent', c.agent || 'AI'), c.takeover ? h('span.badge.takeover', c.takeover.state === 'live' ? 'Human: ' + c.takeover.by : 'Takeover ' + c.takeover.state) : null,
-        c.muted ? h('span.badge.pending', 'AI muted') : null, c.grade ? h('span.badge.score', c.grade.score + ' · ' + (OUT[c.grade.outcome] || c.grade.outcome)) : null,
+        c.muted ? h('span.badge.pending', 'AI muted') : null, alerting ? h('span.badge.alert', '⚠ ' + c.alerts.length) : null,
+        c.leadId ? h('span.badge.none', 'Lead callback') : null, c.grade ? h('span.badge.score', c.grade.score + ' · ' + (OUT[c.grade.outcome] || c.grade.outcome)) : null,
         !S.location && depName(c.locationId) ? h('span.muted.small', depName(c.locationId)) : null),
       c.lastLine ? h('p.last', (c.lastLine.role === 'caller' ? 'Caller: ' : 'AI: ') + c.lastLine.text) : h('p.last.muted', c.status === 'ringing' ? 'Ringing…' : 'Connecting…'),
       c.warning ? h('p.small.warn', c.warning) : null);
@@ -109,7 +147,7 @@
         const full = await api('GET', '/api/live/calls/' + encodeURIComponent(id) + qa('after=0'));
         S.lines = full.lines;
       } else S.lines = S.lines.concat(d.lines);
-      const statusChanged = !S.detail || S.detail.status !== d.status || JSON.stringify(S.detail.takeover) !== JSON.stringify(d.takeover) || S.detail.muted !== d.muted || !!S.detail.grade !== !!d.grade || (S.detail.sync || {}).state !== (d.sync || {}).state;
+      const statusChanged = !S.detail || S.detail.status !== d.status || JSON.stringify(S.detail.takeover) !== JSON.stringify(d.takeover) || S.detail.muted !== d.muted || !!S.detail.grade !== !!d.grade || (S.detail.sync || {}).state !== (d.sync || {}).state || (S.detail.alerts || []).length !== (d.alerts || []).length;
       S.detail = d;
       if (statusChanged) drawDetail(); else drawTranscript();
     } catch (e) { if (e.status === 404) { S.selected = null; drawDetail(); } }
@@ -167,7 +205,7 @@
     const takeBtn = h('button.btn.primary.big', { disabled: !!takeoverState || !S.device, title: S.device ? '' : 'Browser calling is not available', on: { click: (e) => takeover(e.target, id) } },
       takeoverState === 'live' ? 'You are on the call' : takeoverState ? 'Takeover: ' + takeoverState : '🎙 Take over call');
 
-    return h('aside.controls',
+    return h('aside.controls', alertBox(d),
       h('div.ctl', h('h3', 'Listen'), h('div.row', listenBtn, fmtSel), h('p.muted.small', 'Audio streams directly from the call to your browser.')),
       h('div.ctl', h('h3', 'Whisper to the AI'), whisperIn,
         h('div.row', h('button.btn.primary', { on: { click: send('whisper') } }, 'Whisper'), h('button.btn', { on: { click: send('say') }, title: 'The AI says this text out loud, word for word' }, 'Say it now')),
@@ -181,10 +219,12 @@
       S.activeCall ? inCallBar() : null);
   }
 
+  const alertBox = (d) => ((d.alerts || []).length ? h('div.ctl', h('h3', 'Alerts'), h('ul.alert-list', d.alerts.map((a) => h('li', '⚠ ' + a.text)))) : null);
+
   function postCall(d) {
     const g = d.grade;
     const sync = d.sync || {};
-    return h('aside.controls',
+    return h('aside.controls', alertBox(d),
       h('div.ctl', h('h3', 'QA grade'),
         g ? [h('div.score-big', String(g.score), h('span', '/100')),
           h('p', h('span.badge.' + (g.sentiment === 'positive' ? 'live' : g.sentiment === 'negative' ? 'failed' : 'none'), g.sentiment), ' ', h('span.badge.score', OUT[g.outcome] || g.outcome)),
@@ -196,6 +236,7 @@
       d.recordingUrl ? h('div.ctl', h('h3', 'Recording'), h('audio', { controls: true, preload: 'none', src: d.recordingUrl })) : null,
       h('div.ctl', h('h3', 'CRM sync'),
         h('p', h('span.badge.' + (sync.state === 'done' ? 'live' : sync.state === 'failed' ? 'failed' : 'pending'), sync.state || 'pending'), sync.skipped ? ' ' + sync.skipped : ''),
+        sync.sms && !/^error/.test(sync.sms) ? h('p.small', '✉ Follow-up text sent (' + sync.sms + ')') : (sync.sms ? h('p.small.warn', 'Follow-up text failed: ' + sync.sms.replace(/^error: /, '')) : null),
         sync.error ? h('p.small.warn', sync.error) : null,
         canControl() ? h('button.btn.small', { on: { click: async (e) => { try { await busy(e.target, () => api('POST', '/api/live/calls/' + encodeURIComponent(d.id) + '/resync' + q(), { regrade: e.shiftKey })); toast('Synced', 'ok'); refreshDetail(); } catch (err) { toast(err.message, 'err'); } } }, title: 'Shift+click to regrade too' }, 'Sync again') : null));
   }

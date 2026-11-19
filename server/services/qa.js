@@ -128,8 +128,18 @@ function createQaService(ctx) {
         g = await grade(agency, call);
         if (g) await store.patch('calls', callId, { grade: g }, { inc: { seq: 1 } });
       }
+      // Alerts from the grade (raised once, before the CRM work).
+      if (g && !call.qaAlerted && ctx.automation) {
+        for (const text of ctx.automation.qaAlerts(dep, g)) await ctx.automation.raise(callId, 'qa', text);
+        await store.patch('calls', callId, { qaAlerted: true });
+      }
       const crm = await syncCrm(agency, dep, call, g);
-      const sync = { state: 'done', attempts, at: new Date().toISOString(), contactId: crm.contactId || '', opportunityId: crm.opportunityId || '', skipped: crm.skipped || '' };
+      const fresh = await store.get('calls', callId);
+      let sms = (call.sync && call.sync.sms) || '';
+      if (!sms && ctx.automation) {
+        try { sms = await ctx.automation.sendFollowUp(agency, dep, fresh, g, crm.contactId); } catch (e) { sms = 'error: ' + e.message.slice(0, 120); }
+      }
+      const sync = { state: 'done', attempts, at: new Date().toISOString(), contactId: crm.contactId || '', opportunityId: crm.opportunityId || '', skipped: crm.skipped || '', sms };
       await store.patch('calls', callId, { sync }, { inc: { seq: 1 } });
       await store.log(call.companyId, 'call.synced', (g ? g.outcome + ' (' + g.score + ')' : 'synced') + (crm.skipped ? ' - ' + crm.skipped : ''), { locationId: call.locationId, callId });
       return sync;

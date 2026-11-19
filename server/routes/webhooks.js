@@ -22,7 +22,13 @@ module.exports = function (app, ctx) {
     }
     const r = await ctx.calls.ingest(dep, msg);
     res.json({ ok: true });
-    if (r && r.ended) ctx.background('qa ' + r.callId, () => ctx.qa.processCall(r.callId));
+    if (r && r.ended) {
+      ctx.background('qa ' + r.callId, async () => {
+        const c = await store.get('calls', r.callId);
+        if (c && c.leadId) await ctx.automation.leadCallEnded(c);
+        await ctx.qa.processCall(r.callId);
+      });
+    }
   }));
 
   /* ---------- Twilio: takeover line (Vapi transfers the caller here) ---------- */

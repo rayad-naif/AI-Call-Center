@@ -30,7 +30,9 @@ const DEFAULT_SCOPES = [
   'calendars/events.write',
   'locations/customFields.readonly',
   'locations/customFields.write',
-  'users.readonly'
+  'users.readonly',
+  'conversations.readonly',
+  'conversations/message.write'
 ].join(' ');
 
 function load(env) {

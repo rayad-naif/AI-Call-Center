@@ -18,13 +18,17 @@ async function ensureIndexes(d) {
     d.collection('users').createIndex({ companyId: 1 }),
     d.collection('takeovers').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
     d.collection('takeovers').createIndex({ companyId: 1, createdAt: -1 }),
+    d.collection('leads').createIndex({ status: 1, nextAt: 1 }),
+    d.collection('leads').createIndex({ locationId: 1, phone: 1, createdAt: -1 }),
+    d.collection('leads').createIndex({ locationId: 1, lastCallAt: -1 }),
+    d.collection('leads').createIndex({ createdAt: 1 }, { expireAfterSeconds: 90 * 86400 }),
     d.collection('events').createIndex({ companyId: 1, at: -1 }),
     d.collection('events').createIndex({ at: 1 }, { expireAfterSeconds: EVENT_TTL_DAYS * 86400 })
   ].map((p) => p.catch((e) => console.warn('[store] index not created: ' + e.message))));
 }
 
 // Dates are stored as ISO strings for parity with the file store, except TTL fields.
-const TTL_FIELDS = { calls: ['createdAt'], takeovers: ['expiresAt'] };
+const TTL_FIELDS = { calls: ['createdAt'], takeovers: ['expiresAt'], leads: ['createdAt'] };
 function toDb(col, doc) {
   const out = Object.assign({}, doc);
   (TTL_FIELDS[col] || []).forEach((f) => { if (typeof out[f] === 'string') out[f] = new Date(out[f]); });

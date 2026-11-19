@@ -14,6 +14,7 @@ const { createCallService } = require('./services/calls');
 const { createQaService } = require('./services/qa');
 const { createToolService } = require('./services/tools');
 const { createBranding } = require('./services/branding');
+const { createAutomation } = require('./services/automation');
 const { createAuth } = require('./auth');
 
 /* Run work after the response is sent. On Vercel, waitUntil keeps the
@@ -43,6 +44,7 @@ function createApp(cfg, deps) {
   ctx.qa = createQaService(ctx);
   ctx.tools = createToolService(ctx);
   ctx.branding = createBranding(ctx, deps);
+  ctx.automation = createAutomation(ctx);
   ctx.auth = createAuth(cfg, ctx);
   ctx.background = deps.background || backgroundRunner();
   ctx.limits = {
@@ -59,7 +61,8 @@ function createApp(cfg, deps) {
   app.locals.sweep = async () => {
     const stale = await ctx.calls.sweepStale();
     const synced = await ctx.qa.retryQueued(25);
-    return { stale, synced };
+    const leads = await ctx.automation.processDueLeads(25);
+    return { stale, synced, leads };
   };
 
   // Security headers. Pages must be frameable: HighLevel (and every
@@ -90,6 +93,7 @@ function createApp(cfg, deps) {
   require('./routes/oauth')(app, ctx);
   require('./routes/agency')(app, ctx);
   require('./routes/live')(app, ctx);
+  require('./routes/automation')(app, ctx);
   require('./routes/admin')(app, ctx);
   require('./routes/pages')(app, ctx);
 

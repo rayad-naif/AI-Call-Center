@@ -196,3 +196,44 @@ details summary { cursor: pointer; font-weight: 600; margin: 8px 0; }
   .hero h1 { font-size: 1.8rem; }
   .table th:nth-child(3), .table td:nth-child(3) { display: none; }
 }
+
+/* report */
+.report-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.report-head select { width: auto; }
+.stat-sub { color: var(--muted); font-size: .75rem; margin-top: 2px; }
+.report .stats { margin-bottom: 16px; }
+.chart { width: 100%; height: auto; }
+.chart .bar { fill: color-mix(in srgb, var(--brand) 30%, transparent); }
+.chart .bar.booked { fill: var(--brand); }
+.chart .grid { stroke: var(--line); }
+.chart .axis { fill: var(--muted); font-size: 11px; }
+.legend { color: var(--muted); font-size: .8rem; display: flex; align-items: center; gap: 6px; margin: -6px 0 8px; }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: color-mix(in srgb, var(--brand) 30%, transparent); }
+.sw.booked { background: var(--brand); }
+.report-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.bars { list-style: none; padding: 0; margin: 0; }
+.bars li { display: grid; grid-template-columns: 120px 1fr 40px; gap: 10px; align-items: center; padding: 5px 0; }
+.bars li strong { text-align: right; }
+.track { height: 10px; background: var(--panel-2); border-radius: 5px; overflow: hidden; }
+.fill { display: block; height: 100%; background: var(--brand); border-radius: 5px; }
+.hours { display: grid; grid-template-columns: repeat(24, 1fr); gap: 3px; align-items: end; height: 120px; }
+.hour { position: relative; height: 100%; display: flex; align-items: flex-end; }
+.hour::before { content: ""; width: 100%; height: calc(var(--v) * 100% + 2px); background: var(--brand); opacity: calc(.25 + var(--v) * .75); border-radius: 3px; }
+.hour span { position: absolute; bottom: -18px; left: 0; font-size: 10px; color: var(--muted); }
+.hours { margin-bottom: 22px; }
+
+/* alerts in the deck */
+.badge.alert { background: color-mix(in srgb, var(--err) 16%, transparent); color: var(--err); }
+.call-card.alerting { border-color: var(--err); box-shadow: 0 0 0 2px color-mix(in srgb, var(--err) 25%, transparent); }
+.alert-list { list-style: none; padding: 0; margin: 0; }
+.alert-list li { padding: 6px 10px; border-radius: 8px; background: color-mix(in srgb, var(--err) 10%, transparent); color: var(--err); margin-bottom: 6px; font-size: .85rem; }
+.template-bar { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; }
+.template-bar label { flex: 1; min-width: 220px; margin: 0; }
+.copy-row { display: flex; gap: 8px; }
+.copy-row input { font-family: ui-monospace, Menlo, monospace; font-size: .8rem; }
+
+@media print {
+  .topbar, .foot, .no-print, #toasts { display: none !important; }
+  body { background: #fff; color: #000; }
+  .card, .stat { box-shadow: none; break-inside: avoid; }
+}

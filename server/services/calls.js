@@ -12,7 +12,7 @@ const MAX_LINES = 600;
 const ACTIVE = ['queued', 'ringing', 'in-progress', 'forwarding'];
 
 function createCallService(ctx) {
-  const { store, sec, vapi, cfg } = ctx;
+  const { store, sec, vapi, cfg } = ctx; // ctx.automation is attached later
   const now = () => new Date().toISOString();
 
   function baseDoc(dep, call) {
@@ -26,7 +26,9 @@ function createCallService(ctx) {
       direction: c.type === 'outboundPhoneCall' ? 'outbound' : (c.type === 'webCall' ? 'web' : 'inbound'),
       customer: { number: (c.customer && c.customer.number) || '', name: (c.customer && c.customer.name) || '' },
       phoneNumber: (dep.twilio && dep.twilio.phoneNumber) || '',
-      agent: 'Receptionist',
+      agent: c.type === 'outboundPhoneCall' ? 'Outbound' : 'Receptionist',
+      leadId: (c.metadata && c.metadata.leadId) || (c.assistantOverrides && c.assistantOverrides.metadata && c.assistantOverrides.metadata.leadId) || undefined,
+      alerts: [],
       transcript: [],
       seq: 0,
       sync: { state: 'pending' }
@@ -35,7 +37,7 @@ function createCallService(ctx) {
 
   function agentLabel(msg) {
     const n = (msg.assistant && msg.assistant.name) || '';
-    const m = n.match(/ - (Receptionist|Sales|Support)$/);
+    const m = n.match(/ - (Receptionist|Sales|Support|Outbound)$/);
     return m ? m[1] : (n || null);
   }
 
@@ -87,6 +89,11 @@ function createCallService(ctx) {
           await store.patch('calls', id, { partial: { role, text: text.slice(0, 500), agent: doc.agent } }, { inc: { seq: 1 } });
         } else {
           await addLine(id, { role, text: text.slice(0, 2000), agent: role === 'agent' ? doc.agent : undefined, at: now() });
+          // Live alert when the caller says a watched keyword (once per keyword per call).
+          const hit = role === 'caller' && ctx.automation && ctx.automation.keywordHit(dep, text);
+          if (hit && !(doc.alerts || []).some((a) => a.kind === 'keyword' && a.text.startsWith('"' + hit + '"'))) {
+            await ctx.automation.raise(id, 'keyword', '"' + hit + '": ' + text);
+          }
         }
         break;
       }
@@ -149,7 +156,8 @@ function createCallService(ctx) {
       durationSec: c.durationSec, seq: c.seq || 0, lastLine: (c.transcript || []).slice(-1)[0] || null,
       takeover: c.takeover ? { state: c.takeover.state, by: c.takeover.byName } : null,
       muted: !!c.muted, grade: c.grade ? { score: c.grade.score, sentiment: c.grade.sentiment, outcome: c.grade.outcome } : null,
-      warning: c.warning || ''
+      warning: c.warning || '',
+      alerts: (c.alerts || []).slice(-5), leadId: c.leadId || null
     };
   }
 
