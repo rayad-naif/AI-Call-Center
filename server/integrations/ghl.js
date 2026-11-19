@@ -7,7 +7,7 @@ const { createHttp, ApiError } = require('./http');
 
 function createGhl(cfg, fetchImpl) {
   const g = cfg.ghl;
-  const http = createHttp('HighLevel', fetchImpl);
+  const http = createHttp('CRM', fetchImpl);
 
   function authorizeUrl(state) {
     const u = new URL(g.authUrl);
@@ -30,7 +30,7 @@ function createGhl(cfg, fetchImpl) {
   async function exchangeCode(code) {
     const t = await tokenRequest({ grant_type: 'authorization_code', code, redirect_uri: cfg.redirectUri });
     if (!t || !t.access_token || !t.companyId || !/^(Company|Location)$/.test(t.userType || '')) {
-      throw new ApiError('HighLevel', 'Unexpected install token (' + ((t && t.userType) || 'unknown') + ').', 400, t);
+      throw new ApiError('CRM', 'Unexpected install token (' + ((t && t.userType) || 'unknown') + ').', 400, t);
     }
     return t;
   }

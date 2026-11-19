@@ -45,7 +45,7 @@ function createAgencyService(ctx) {
     const access = sec.decrypt(t.accessToken);
     if (access && t.expiresAt && Date.now() < t.expiresAt - 120e3) return access;
     const refreshToken = sec.decrypt(t.refreshToken);
-    if (!refreshToken) throw new Error('HighLevel is not connected for this agency. Reinstall the app.');
+    if (!refreshToken) throw new Error('The CRM is not connected for this company. Reinstall the app.');
     let r;
     try {
       r = await ghl.refresh(refreshToken);
@@ -59,7 +59,7 @@ function createAgencyService(ctx) {
         return sec.decrypt(ft.accessToken);
       }
       if (e.status === 400 || e.status === 401) {
-        throw Object.assign(new Error('HighLevel access was revoked or expired. Reinstall the app from the Marketplace to reconnect.'), { status: 409 });
+        throw Object.assign(new Error('CRM access was revoked or expired. Reinstall the app from the Marketplace to reconnect.'), { status: 409 });
       }
       throw e;
     }
@@ -93,7 +93,7 @@ function createAgencyService(ctx) {
         r = await ghl.locationToken(agencyAccess, agency._id, locationId);
       } catch (e) {
         if (e.status >= 400 && e.status < 500) {
-          throw Object.assign(new Error('The app is not installed in this sub-account yet. In HighLevel, open the app in the Marketplace and install it to this sub-account (or enable it for all sub-accounts), then try again.'), { status: 409, provider: 'HighLevel' });
+          throw Object.assign(new Error('The app is not installed in this account yet. In the CRM, open the app in the Marketplace and install it to this account (or enable it for all accounts), then try again.'), { status: 409, provider: 'CRM' });
         }
         throw e;
       }
@@ -107,7 +107,7 @@ function createAgencyService(ctx) {
 
   async function requireActive(companyId) {
     const a = await store.get('agencies', companyId);
-    if (!a || !a.installed) throw Object.assign(new Error('This agency has not installed the app.'), { status: 403 });
+    if (!a || !a.installed) throw Object.assign(new Error('This company has not installed the app.'), { status: 403 });
     if (a.status === 'suspended') throw Object.assign(new Error('This license is suspended. Contact support.'), { status: 403 });
     if (a.status === 'pending') throw Object.assign(new Error('This license is waiting for approval.'), { status: 403 });
     return a;

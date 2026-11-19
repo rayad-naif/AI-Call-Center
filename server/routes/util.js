@@ -18,7 +18,7 @@ function requireSession(ctx, role, opts) {
   return (req, res, next) => {
     const s = req.session;
     if (!s) return res.status(401).json({ error: 'Please sign in again' });
-    if (opts.agencyOnly && s.kind !== 'agency') return res.status(403).json({ error: 'Agency access only' });
+    if (opts.agencyOnly && s.kind !== 'agency') return res.status(403).json({ error: 'Company access only' });
     if (role && !ctx.auth.can(s, role)) return res.status(403).json({ error: 'Your role cannot do this' });
     next();
   };

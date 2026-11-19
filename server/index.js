@@ -13,7 +13,7 @@ const app = createApp(cfg);
 const server = app.listen(cfg.port, () => {
   console.log('AI Call Center listening on :' + cfg.port);
   console.log('OAuth redirect URL:      ' + cfg.redirectUri);
-  console.log('HighLevel webhook URL:   ' + cfg.baseUrl + '/webhooks/ghl');
+  console.log('CRM webhook URL:         ' + cfg.baseUrl + '/webhooks/crm');
   console.log('Custom page (SSO) URL:   ' + cfg.baseUrl + '/embed');
 });
 

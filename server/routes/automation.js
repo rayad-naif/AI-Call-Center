@@ -16,7 +16,7 @@ module.exports = function (app, ctx) {
 
   function scopeOf(req) {
     const s = auth.scope(req.session, req.query.location || undefined);
-    if (!s) throw httpError(403, 'You do not have access to that sub-account');
+    if (!s) throw httpError(403, 'You do not have access to that account');
     return s;
   }
 

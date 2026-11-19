@@ -75,7 +75,7 @@
       h('p.muted', 'Usage is billed to your own accounts. Keys are checked live when saved and stored encrypted (AES-256-GCM). Keys that fail the check are not saved.'),
       h('fieldset', h('legend', 'Twilio ', status('twilio')),
         field('Account SID', input('twilioSid', '', { placeholder: k.twilioSid.set ? k.twilioSid.hint : 'AC…', autocomplete: 'off' })),
-        field('Auth Token', secretInput('twilioToken', k.twilioToken), 'Console → Account info. Used to create a subaccount and number per client.')),
+        field('Auth Token', secretInput('twilioToken', k.twilioToken), 'Console → Account info. Used to create an account and number per client.')),
       h('fieldset', h('legend', 'Vapi ', status('vapi')),
         field('Private API key', secretInput('vapiKey', k.vapiKey), 'Vapi dashboard → API Keys → Private key.')),
       h('fieldset', h('legend', 'OpenAI ', status('openai')),
@@ -94,7 +94,7 @@
       } catch (err) { toast(err.message, 'err'); }
     });
     const setup = state.agency.setup;
-    body.append(form, h('div.card', h('h2', 'Agency resources'), h('ul.kv',
+    body.append(form, h('div.card', h('h2', 'Company resources'), h('ul.kv',
       h('li', h('span', 'OpenAI key linked to Vapi'), h('strong', setup.vapiCredential ? 'Yes' : 'On first deploy')),
       h('li', h('span', 'Browser takeover'), h('strong', setup.browserCalling ? 'Ready' : 'On first deploy')),
       h('li', h('span', 'Takeover line'), h('strong', setup.takeoverNumber || '—')))));
@@ -109,21 +109,21 @@
     try {
       const r = await api('GET', '/api/locations');
       list.innerHTML = '';
-      const q = input('q', '', { placeholder: 'Search sub-accounts…', type: 'search' });
+      const q = input('q', '', { placeholder: 'Search accounts…', type: 'search' });
       const table = h('table.table');
       const draw = () => {
         const term = q.value.toLowerCase();
         table.innerHTML = '';
-        table.append(h('thead', h('tr', h('th', 'Sub-account'), h('th', 'Status'), h('th', 'AI number'), h('th', ''))));
+        table.append(h('thead', h('tr', h('th', 'Account'), h('th', 'Status'), h('th', 'AI number'), h('th', ''))));
         const tb = h('tbody');
         r.locations.filter((l) => !term || (l.name || '').toLowerCase().includes(term)).forEach((l) => tb.append(h('tr',
           h('td', h('strong', l.name), h('div.muted.small', [l.city, l.state].filter(Boolean).join(', '))),
-          h('td', badge(l.status), l.appInstalled === false ? h('div.small.warn', 'App not installed in this sub-account yet') : null), h('td', l.phoneNumber || '—'),
+          h('td', badge(l.status), l.appInstalled === false ? h('div.small.warn', 'App not installed in this account yet') : null), h('td', l.phoneNumber || '—'),
           h('td.right', h('a.btn.small' + (l.status === 'none' ? '.primary' : ''), { href: '#clients/' + encodeURIComponent(l.id) }, l.status === 'none' ? 'Set up' : 'Manage')))));
         table.append(tb);
       };
       q.addEventListener('input', draw);
-      list.append(h('div.row-between', h('h2', 'Clients (' + r.locations.length + ' sub-accounts)'), q), table);
+      list.append(h('div.row-between', h('h2', 'Clients (' + r.locations.length + ' accounts)'), q), table);
       draw();
     } catch (err) { list.innerHTML = ''; list.append(h('p.error', err.message)); }
   }
@@ -141,7 +141,7 @@
     const opt = (dep && dep.options) || { country: 'US', areaCode: '', useSubaccount: true };
     const pipe = (dep && dep.pipeline) || { pipelineId: '', stages: {} };
     box.innerHTML = '';
-    if (crm.error) box.append(h('p.note.err', 'Could not read this sub-account from HighLevel: ' + crm.error));
+    if (crm.error) box.append(h('p.note.err', 'Could not read this account from the CRM: ' + crm.error));
 
     const form = h('form.form-grid');
     // Industry template: fills the business and agent fields in one click.
@@ -198,7 +198,7 @@
     form.append(h('fieldset.card', h('legend', '3. Calendar and pipeline'),
       field('Booking calendar (Sales agent)', calSel),
       field('Appointment length (minutes)', input('appointmentMinutes', a.appointmentMinutes, { type: 'number', min: 15, max: 480 })),
-      field('Pipeline for call outcomes', pipeSel, 'HighLevel\'s API cannot create pipelines; pick one from your snapshot.'),
+      field('Pipeline for call outcomes', pipeSel, 'The CRM\'s API cannot create pipelines; pick one from your snapshot.'),
       stageBox));
     drawStages();
     // Number
@@ -206,7 +206,7 @@
       dep && dep.phoneNumber ? h('p', 'Number: ', h('strong', dep.phoneNumber)) : null,
       field('Country', input('country', opt.country, { maxlength: 2 })),
       field('Preferred area code', input('areaCode', opt.areaCode, { maxlength: 3, placeholder: 'e.g. 512' })),
-      h('label.row', h('input', { type: 'checkbox', name: 'useSubaccount', checked: opt.useSubaccount !== false, disabled: !!(dep && dep.phoneNumber) }), ' Separate Twilio subaccount for this client')));
+      h('label.row', h('input', { type: 'checkbox', name: 'useSubaccount', checked: opt.useSubaccount !== false, disabled: !!(dep && dep.phoneNumber) }), ' Separate Twilio account for this client')));
 
     // 5. Speed-to-lead
     const D = state.agency.defaults;
@@ -215,7 +215,7 @@
     const hookBox = h('div');
     if (ob.webhookUrl) {
       const urlIn = h('input', { value: ob.webhookUrl, readonly: true });
-      hookBox.append(field('Webhook URL for your HighLevel workflow', h('div.copy-row', urlIn, h('button.btn.small', { type: 'button', on: { click: () => { urlIn.select(); navigator.clipboard && navigator.clipboard.writeText(urlIn.value); toast('Copied', 'ok'); } } }, 'Copy')),
+      hookBox.append(field('Webhook URL for your CRM workflow', h('div.copy-row', urlIn, h('button.btn.small', { type: 'button', on: { click: () => { urlIn.select(); navigator.clipboard && navigator.clipboard.writeText(urlIn.value); toast('Copied', 'ok'); } } }, 'Copy')),
         'In the client\'s workflow (trigger: form submitted / new lead), add the action "Custom Webhook", method POST, this URL. Contact fields are sent automatically; add custom data "interest" to tell the AI what they asked about.'));
     } else hookBox.append(h('p.muted.small', 'Save or deploy to get the webhook URL.'));
     form.append(h('fieldset.card', h('legend', '5. Speed-to-lead (AI calls new leads)'),
@@ -232,7 +232,7 @@
     // 6. SMS follow-up
     const fu = (dep && dep.followUp) || D.followUp;
     form.append(h('fieldset.card', h('legend', '6. SMS follow-up after calls'),
-      h('p.muted.small', 'Sent through the sub-account\'s own HighLevel phone number, so replies land in HighLevel Conversations. Variables: {first_name} {business} {appointment_time} {phone}'),
+      h('p.muted.small', 'Sent through the account\'s own CRM phone number, so replies land in CRM Conversations. Variables: {first_name} {business} {appointment_time} {phone}'),
       h('label.row', h('input', { type: 'checkbox', name: 'fu.enabled', checked: !!fu.enabled }), ' Send follow-up texts'),
       field('Appointment booked', textarea('fu.booked', fu.booked, { rows: 2 })),
       field('Missed call / voicemail', textarea('fu.missed', fu.missed, { rows: 2 })),
@@ -328,7 +328,7 @@
     });
     removeBtn.addEventListener('click', async () => {
       if (!confirm('Remove this call center? The AI agents are deleted and the phone number is released (it cannot be recovered).')) return;
-      const close = confirm('Also close the client\'s Twilio subaccount?');
+      const close = confirm('Also close the client\'s Twilio account?');
       try {
         const r = await busy(removeBtn, () => api('POST', '/api/deployments/' + encodeURIComponent(locationId) + '/teardown', { closeSubaccount: close }));
         toast(r.errors.length ? 'Removed with errors: ' + r.errors.join('; ') : 'Removed', r.errors.length ? 'err' : 'ok');
@@ -381,14 +381,14 @@
     const table = h('table.table', h('thead', h('tr', h('th', 'User'), h('th', 'Access'), h('th', 'Last sign-in'), h('th', ''))),
       h('tbody', u.users.map((x) => h('tr',
         h('td', h('strong', x.name || x.email), h('div.muted.small', x.email)),
-        h('td', x.kind === 'client' ? 'Client ' + x.role + ': ' + (x.locationIds || []).map((id) => names[id] || id).join(', ') : 'Agency ' + x.role, x.disabled ? h('span.badge.failed', 'disabled') : null),
+        h('td', x.kind === 'client' ? 'Client ' + x.role + ': ' + (x.locationIds || []).map((id) => names[id] || id).join(', ') : 'Company ' + x.role, x.disabled ? h('span.badge.failed', 'disabled') : null),
         h('td', fmtTime(x.lastLoginAt) || '—'),
         h('td.right', x.role === 'owner' ? null : [
           h('button.btn.small', { on: { click: async () => { await api('PATCH', '/api/users/' + x.id, { disabled: !x.disabled }); team(clear(body)); } } }, x.disabled ? 'Enable' : 'Disable'), ' ',
           h('button.btn.small.danger', { on: { click: async () => { if (confirm('Delete ' + x.email + '?')) { await api('DELETE', '/api/users/' + x.id); team(clear(body)); } } } }, 'Delete')
         ])))));
-    const kindSel = select('kind', [['client', 'Client (one business)'], ['agency', 'Agency staff']], 'client');
-    const roleSel = select('role', [['viewer', 'Viewer (read only)'], ['manager', 'Manager (whisper, takeover)'], ['admin', 'Admin (agency only)']], 'manager');
+    const kindSel = select('kind', [['client', 'Client (one business)'], ['agency', 'Company staff']], 'client');
+    const roleSel = select('role', [['viewer', 'Viewer (read only)'], ['manager', 'Manager (whisper, takeover)'], ['admin', 'Admin (company only)']], 'manager');
     const locSel = h('select', { name: 'locationIds', multiple: true, size: Math.min(6, Math.max(2, live.length)) }, live.map((x) => h('option', { value: x.locationId }, x.name)));
     const locField = field('Sub-accounts', locSel);
     kindSel.addEventListener('change', () => { locField.hidden = kindSel.value !== 'client'; });
@@ -411,7 +411,7 @@
       } catch (err) { toast(err.message, 'err'); }
     });
     body.append(h('div.card', h('h2', 'Team and client logins'), table), form,
-      h('p.muted.small', 'Inside HighLevel, users are signed in automatically from the sidebar: agency admins get this console, and anyone opening the app inside a sub-account sees only that client\'s deck.'));
+      h('p.muted.small', 'Inside the CRM, users are signed in automatically from the sidebar: company admins get this console, and anyone opening the app inside an account sees only that client\'s deck.'));
   }
   const clear = (n) => { n.innerHTML = ''; return n; };
 

@@ -45,7 +45,7 @@ Leads that arrive during calling hours are called at once. Leads that arrive aft
 | Docs / Privacy / Terms | `/docs`, `/privacy`, `/terms` |
 | Install (starts HighLevel OAuth) | `/install` |
 | OAuth redirect URL (put in the GHL app) | `/oauth/callback` |
-| Webhook URL (put in the GHL app) | `/webhooks/ghl` (INSTALL, UNINSTALL) |
+| Webhook URL (put in the CRM app) | `/webhooks/crm` (INSTALL, UNINSTALL; `/webhooks/ghl` also works) |
 | Custom page / custom menu link (SSO) | `/embed` |
 | Agency console | `/app` |
 | Command Deck | `/deck` (`?location=<locationId>` to open one client) |
@@ -96,7 +96,7 @@ Do this in the HighLevel Marketplace developer portal, in your app's settings. A
 3. **Auth → Redirect URL:** `${BASE_URL}/oauth/callback`
 4. **Auth → Client Keys:** create a key. Put the Client ID in `GHL_CLIENT_ID` and the Client Secret in `GHL_CLIENT_SECRET` (the secret is shown only once). The app id is read from the part of the Client ID before the first "-". Set `GHL_APP_ID` only if yours differs.
 5. **Auth → SSO:** generate the SSO key and put it in `GHL_SSO_KEY`.
-6. **Webhooks:** URL `${BASE_URL}/webhooks/ghl`, events **INSTALL** and **UNINSTALL**. Optionally add HighLevel's webhook public key to `GHL_WEBHOOK_ED25519_KEY`.
+6. **Webhooks:** URL `${BASE_URL}/webhooks/crm`, events **INSTALL** and **UNINSTALL**. Optionally add HighLevel's webhook public key to `GHL_WEBHOOK_ED25519_KEY`.
 7. **Modules → Custom Page:** URL `${BASE_URL}/embed`. HighLevel opens it in the left sidebar and the app signs the user in with SSO:
    - an agency admin in Agency view gets the agency console;
    - other agency users get the Command Deck;

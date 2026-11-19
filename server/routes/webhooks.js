@@ -80,7 +80,8 @@ module.exports = function (app, ctx) {
   }));
 
   /* ---------- HighLevel marketplace lifecycle ---------- */
-  app.post('/webhooks/ghl', h(async (req, res) => {
+  // /webhooks/crm is the address shown everywhere; /webhooks/ghl stays as an alias.
+  app.post(['/webhooks/crm', '/webhooks/ghl'], h(async (req, res) => {
     const verified = ctx.ghl.verifyWebhook(req.rawBody || Buffer.from(''), req.headers);
     if (verified === false) return res.status(401).json({ error: 'bad signature' });
     const b = req.body || {};

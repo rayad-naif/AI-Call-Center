@@ -13,7 +13,7 @@ module.exports = function (app, ctx) {
   function scopeOf(req) {
     const loc = req.query.location || (req.body && req.body.location) || '';
     const s = auth.scope(req.session, loc || undefined);
-    if (!s) throw httpError(403, 'You do not have access to that sub-account');
+    if (!s) throw httpError(403, 'You do not have access to that account');
     return s;
   }
 

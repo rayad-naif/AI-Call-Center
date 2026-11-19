@@ -74,7 +74,7 @@ function createBranding(ctx, deps) {
     }
     if (host === cfg.baseHost) throw Object.assign(new Error('Use your own domain'), { status: 400 });
     const taken = await store.get('domains', host);
-    if (taken && taken.companyId !== agency._id) throw Object.assign(new Error('That domain is already used by another agency'), { status: 409 });
+    if (taken && taken.companyId !== agency._id) throw Object.assign(new Error('That domain is already used by another company'), { status: 409 });
     await store.put('domains', { _id: host, companyId: agency._id, verified: !!(taken && taken.verified), createdAt: (taken && taken.createdAt) || new Date().toISOString() });
     await store.patch('agencies', agency._id, { 'branding.domain': host });
     cache.delete(host);

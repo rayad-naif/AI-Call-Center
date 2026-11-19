@@ -26,7 +26,7 @@ const STEPS = ['twilio_subaccount', 'twilio_number', 'vapi_assistants', 'vapi_sq
 const STEP_LABEL = {
   vapi_credential: 'Connect OpenAI key to Vapi',
   browser_calling: 'Browser takeover line',
-  twilio_subaccount: 'Twilio subaccount',
+  twilio_subaccount: 'Twilio account',
   twilio_number: 'Phone number',
   vapi_assistants: 'AI agents (Receptionist, Sales, Support, Outbound)',
   vapi_squad: 'AI switchboard (Squad routing)',
@@ -117,9 +117,9 @@ function createProvisioner(ctx) {
   /* ---------- client deployment ---------- */
   async function createDeployment(agency, input) {
     const locationId = String(input.locationId || '').trim();
-    if (!/^[A-Za-z0-9]{8,40}$/.test(locationId)) throw Object.assign(new Error('Pick a sub-account'), { status: 400 });
+    if (!/^[A-Za-z0-9]{8,40}$/.test(locationId)) throw Object.assign(new Error('Pick an account'), { status: 400 });
     const existing = await store.get('deployments', locationId);
-    if (existing && existing.companyId !== agency._id) throw Object.assign(new Error('That sub-account belongs to another agency'), { status: 403 });
+    if (existing && existing.companyId !== agency._id) throw Object.assign(new Error('That account belongs to another company'), { status: 403 });
     const dep = existing || {
       _id: locationId,
       companyId: agency._id,
@@ -251,7 +251,7 @@ function createProvisioner(ctx) {
         if (!p.pipelineId) return 'Skipped: no pipeline chosen (calls still sync as notes and fields)';
         const pipes = await api.listPipelines(locationId);
         const pipe = pipes.find((x) => x.id === p.pipelineId);
-        if (!pipe) throw new Error('The chosen pipeline no longer exists in this sub-account');
+        if (!pipe) throw new Error('The chosen pipeline no longer exists in this account');
         const stageIds = new Set((pipe.stages || []).map((s) => s.id));
         const bad = Object.values(p.stages || {}).filter((id) => id && !stageIds.has(id));
         if (bad.length) throw new Error('Some mapped stages are not in "' + pipe.name + '"');
@@ -304,7 +304,7 @@ function createProvisioner(ctx) {
     for (const id of Object.values(vp.assistantIds || {})) await attempt('Vapi assistant', () => v.deleteAssistant(id));
     const t = dep.twilio || {};
     if (opts.releaseNumber !== false && t.numberSid) await attempt('Twilio number', () => tw.releaseNumber(t.accountSid || k.twilioSid, t.numberSid));
-    if (opts.closeSubaccount && t.accountSid && t.accountSid !== k.twilioSid) await attempt('Twilio subaccount', () => tw.setSubaccountStatus(t.accountSid, 'closed'));
+    if (opts.closeSubaccount && t.accountSid && t.accountSid !== k.twilioSid) await attempt('Twilio account', () => tw.setSubaccountStatus(t.accountSid, 'closed'));
     // Keep the subaccount (and the number, if not released) so a redeploy reuses them.
     let twilioLeft = {};
     if (opts.releaseNumber === false) twilioLeft = t;

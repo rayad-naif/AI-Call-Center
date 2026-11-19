@@ -96,7 +96,7 @@ function createQaService(ctx) {
 
     const contact = await api.upsertContact(contactInput);
     const contactId = contact && (contact.id || contact._id);
-    if (!contactId) throw new Error('HighLevel did not return a contact');
+    if (!contactId) throw new Error('The CRM did not return a contact');
     await api.addNote(contactId, noteBody(call, g, dep));
     const tags = ['ai-call'];
     if (g) tags.push('ai-' + g.outcome.replace(/_/g, '-'));
@@ -124,7 +124,7 @@ function createQaService(ctx) {
     try {
       const agency = await store.get('agencies', call.companyId);
       const dep = await store.get('deployments', call.locationId);
-      if (!agency || !dep) throw new Error('Agency or deployment missing');
+      if (!agency || !dep) throw new Error('Company or deployment missing');
       let g = call.grade || null;
       if (!g) {
         g = await grade(agency, call);

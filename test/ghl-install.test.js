@@ -55,7 +55,7 @@ test('location install webhooks and installed-location check', async (t) => {
   await env.owner.req('PUT', '/api/agency/keys', { twilioSid: 'ACmain', twilioToken: 'goodtoken', vapiKey: 'vapi-good', openaiKey: 'sk-good' });
   const crm = await env.owner.req('GET', '/api/locations/loc2bbbbbbbb/crm');
   assert.equal(crm.status, 409);
-  assert.match(crm.json.error, /not installed in this sub-account/);
+  assert.match(crm.json.error, /not installed in this account/);
 });
 
 test('SSO accepts payload variants and maps roles', async (t) => {
@@ -93,7 +93,7 @@ test('refresh tokens: single-use race and credential check', async (t) => {
   await admin.req('POST', '/api/admin/login', { password: 'admin-password-1' });
   let r = await admin.req('GET', '/api/admin/setup');
   assert.ok(r.json.checks.length >= 7);
-  assert.equal(r.json.paste['Custom page URL (sidebar, agency + sub-account)'], env.base + '/embed');
+  assert.equal(r.json.paste['Custom page URL (sidebar, company + account)'], env.base + '/embed');
   r = await admin.req('POST', '/api/admin/setup/test', {});
   assert.equal(r.json.ok, true, r.json.detail);
   env.cfg.ghl.clientSecret = 'nope';
@@ -132,7 +132,7 @@ test('white-label: clients never see platform names or "agency"', async (t) => {
   const { neutral } = require('../server/whitelabel');
   assert.equal(neutral('HighLevel: Contact not found'), 'Contact not found');
   assert.equal(neutral('Vapi: Invalid Key'), 'Invalid Key');
-  assert.equal(neutral('The GoHighLevel API and Twilio failed; ask your agency'), 'The CRM API and the phone carrier failed; ask your provider');
+  assert.equal(neutral('The GoHighLevel API and Twilio failed; ask your agency'), 'The CRM API and the phone carrier failed; ask your company');
 
   const env = await setup();
   t.after(() => env.server.close());

@@ -9,14 +9,15 @@ const SWAPS = [
   [/\bVapi\b/gi, 'the voice service'],
   [/\bTwilio\b/gi, 'the phone carrier'],
   [/\bOpenAI\b/gi, 'the AI service'],
-  [/\byour agency\b/gi, 'your provider'],
-  [/\bagency\b/gi, 'provider']
+  [/\bagencies\b/g, 'companies'], [/\bAgencies\b/g, 'Companies'],
+  [/\bagency\b/g, 'company'], [/\bAgency\b/g, 'Company'],
+  [/\bsub-?accounts\b/gi, 'accounts'], [/\bsub-?account\b/gi, 'account']
 ];
 
 function neutral(text) {
   let s = String(text == null ? '' : text);
   // "Vapi: message" style provider prefixes from the API clients.
-  s = s.replace(/^(HighLevel|Vapi|Twilio|OpenAI): /, '');
+  s = s.replace(/^(CRM|HighLevel|Vapi|Twilio|OpenAI): /, '');
   SWAPS.forEach(([re, to]) => { s = s.replace(re, to); });
   return s.replace(/\b(the) the\b/gi, '$1');
 }

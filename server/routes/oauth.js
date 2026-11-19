@@ -18,7 +18,7 @@ module.exports = function (app, ctx) {
 
   app.get('/oauth/callback', h(async (req, res) => {
     const code = String(req.query.code || '');
-    if (!code) return res.status(400).type('html').send(views.message(req, 'Install cancelled', 'HighLevel did not send an authorization code.'));
+    if (!code) return res.status(400).type('html').send(views.message(req, 'Install cancelled', 'The CRM did not send an authorization code.'));
     const t = await ghl.exchangeCode(code);
 
     // Sub-account install: remember it; the agency deploys from its console.
@@ -45,7 +45,7 @@ module.exports = function (app, ctx) {
       setup: {},
       branding: {}
     }, {
-      name: company.name || (existing && existing.name) || 'Agency ' + t.companyId.slice(-6),
+      name: company.name || (existing && existing.name) || 'Company ' + t.companyId.slice(-6),
       installed: true,
       installedAt: (existing && existing.installedAt) || new Date().toISOString(),
       ghl: {
@@ -139,7 +139,7 @@ module.exports = function (app, ctx) {
       auth.setSession(res, Object.assign(base, { kind: 'client', role, locationIds: [locationId], locationId }));
       return res.json({ ok: true, redirect: '/deck' });
     }
-    if (u.type && u.type !== 'agency') return res.status(403).json({ error: 'Open this page from a sub-account.' });
+    if (u.type && u.type !== 'agency') return res.status(403).json({ error: 'Open this page from an account.' });
     const role = u.role === 'admin' || u.isAgencyOwner ? 'admin' : 'manager';
     auth.setSession(res, Object.assign(base, { kind: 'agency', role }));
     res.json({ ok: true, redirect: role === 'admin' ? '/app' : '/deck' });

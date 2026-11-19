@@ -41,7 +41,7 @@ const embed = (req) => page(req, {
 });
 
 const consolePage = (req) => page(req, {
-  title: 'Agency console', mainClass: 'shell',
+  title: 'Company console', mainClass: 'shell',
   nav: '<a href="/deck">Command Deck</a><button class="link" data-logout>Sign out</button>',
   body: '<div id="console"><div class="spinner"></div></div>',
   scripts: ['/static/console.js']
@@ -49,7 +49,7 @@ const consolePage = (req) => page(req, {
 
 const deck = (req, opts) => page(req, {
   title: 'Command Deck', mainClass: 'deck-shell', bodyClass: 'deck',
-  nav: (opts.agency ? '<a href="/app">Agency console</a>' : '') + '<a href="/report' + (opts.location ? '?location=' + encodeURIComponent(opts.location) : '') + '" id="report-link">Report</a><span id="voice-status" class="pill" hidden></span><button class="link" data-logout>Sign out</button>',
+  nav: (opts.agency ? '<a href="/app">Company console</a>' : '') + '<a href="/report' + (opts.location ? '?location=' + encodeURIComponent(opts.location) : '') + '" id="report-link">Report</a><span id="voice-status" class="pill" hidden></span><button class="link" data-logout>Sign out</button>',
   body: '<div id="deck"><div class="spinner"></div></div>',
   footer: false,
   data: { voiceSdk: TWILIO_SDK, voiceGlobal: 'Twilio', location: opts.location || '' },
@@ -58,7 +58,7 @@ const deck = (req, opts) => page(req, {
 
 const report = (req, opts) => page(req, {
   title: 'Call center report', mainClass: 'container report-page', bodyClass: 'report',
-  nav: (opts.agency ? '<a href="/app">Agency console</a>' : '') + '<a href="/deck">Command Deck</a><button class="link" data-print>Print / PDF</button>',
+  nav: (opts.agency ? '<a href="/app">Company console</a>' : '') + '<a href="/deck">Command Deck</a><button class="link" data-print>Print / PDF</button>',
   body: '<div id="report"><div class="spinner"></div></div>',
   data: { location: opts.location, days: opts.days },
   scripts: ['/static/report.js']
@@ -82,16 +82,16 @@ function landing(req, cfg) {
   return page(req, {
     marketing: true,
     nav: '<a href="/docs">Docs</a><a href="/login">Sign in</a>',
-    body: '<section class="hero"><h1>Your agency\'s own AI call center</h1>' +
-      '<p class="lead">Plug in your Twilio, Vapi and OpenAI keys once. Deploy a receptionist, a sales closer and a support agent to any client in minutes, watch every call live, step in when it matters, and have every call graded and logged in HighLevel.</p>' +
-      '<p><a class="btn primary" href="' + esc(install) + '">Install from the HighLevel Marketplace</a> <a class="btn" href="/docs">How it works</a></p></section>' +
+    body: '<section class="hero"><h1>Your company\'s own AI call center</h1>' +
+      '<p class="lead">Plug in your Twilio, Vapi and OpenAI keys once. Deploy a receptionist, a sales closer and a support agent to any client in minutes, watch every call live, step in when it matters, and have every call graded and logged in your CRM.</p>' +
+      '<p><a class="btn primary" href="' + esc(install) + '">Install from the CRM Marketplace</a> <a class="btn" href="/docs">How it works</a></p></section>' +
       '<section class="grid3">' +
-      feature('One-click deploy', 'Twilio subaccount and number, three AI agents with switchboard routing, CRM fields and pipeline mapping, all in one click per client.') +
+      feature('One-click deploy', 'Twilio account and number, three AI agents with switchboard routing, CRM fields and pipeline mapping, all in one click per client.') +
       feature('Live Command Deck', 'Every active call on one screen. Read the transcript as it happens, listen in, whisper instructions, or take the call over from your browser.') +
-      feature('Shadow QA + CRM sync', 'Each call is scored, summarized and written to the contact in HighLevel, with the opportunity moved to the right stage.') +
+      feature('Shadow QA + CRM sync', 'Each call is scored, summarized and written to the contact in your CRM, with the opportunity moved to the right stage.') +
       feature('White-label portal', 'Your logo, colors and domain. Clients only ever see their own calls and agents.') +
       feature('Bring your own keys', 'Usage is billed to your own Twilio, Vapi and OpenAI accounts at wholesale cost. Keys are encrypted at rest.') +
-      feature('Built for HighLevel', 'Installs at agency level, signs users in from the CRM sidebar, and works inside every sub-account.') +
+      feature('Built for your CRM', 'Installs at company level, signs users in from the CRM sidebar, and works inside every account.') +
       '</section>'
   });
 }
@@ -104,26 +104,26 @@ function docs(req, cfg) {
     title: 'Documentation', marketing: true, nav: '<a href="/login">Sign in</a>',
     body: '<article class="prose"><h1>Documentation</h1>' +
       '<h2>Getting started</h2><ol>' +
-      step('Install', 'Install the app from the HighLevel Marketplace as an agency admin, then create your owner login.') +
+      step('Install', 'Install the app from the CRM Marketplace as a company admin, then create your owner login.') +
       step('Add your keys', 'In <em>Keys</em>, paste your Twilio Account SID and Auth Token, Vapi private key and OpenAI key. Each is checked live and stored encrypted.') +
-      step('Deploy a client', 'In <em>Clients</em>, pick a sub-account, describe the business (services, hours, FAQ, pricing), choose a booking calendar and map call outcomes to pipeline stages, then click <em>Deploy</em>.') +
+      step('Deploy a client', 'In <em>Clients</em>, pick an account, describe the business (services, hours, FAQ, pricing), choose a booking calendar and map call outcomes to pipeline stages, then click <em>Deploy</em>.') +
       step('Go live', 'The client gets a local number answered by the AI switchboard. Forward their existing line to it, or publish it.') +
       step('Watch and step in', 'Open the <em>Command Deck</em>. Click a call to see the transcript, <em>Listen</em> to the audio, <em>Whisper</em> an instruction to the AI, or <em>Take over</em> the call in your browser.') +
       '</ol>' +
       '<h2>What gets created</h2><ul>' +
-      '<li><strong>Twilio:</strong> a subaccount per client and a local number in it. Once per agency: an API key, a TwiML app and a "takeover line" number for browser takeover.</li>' +
+      '<li><strong>Twilio:</strong> an account per client and a local number in it. Once per company: an API key, a TwiML app and a "takeover line" number for browser takeover.</li>' +
       '<li><strong>Vapi:</strong> your OpenAI key as a provider credential, three assistants (Receptionist, Sales, Support), a Squad that hands calls between them, and the imported phone number.</li>' +
-      '<li><strong>CRM (HighLevel):</strong> contact custom fields (AI Call Summary, AI Sentiment, AI Call Score, AI Call Outcome, AI Next Steps, Last AI Call Recording, Last AI Call). Pipelines cannot be created through the HighLevel API, so map outcomes onto an existing pipeline (include one in your snapshot).</li>' +
+      '<li><strong>CRM:</strong> contact custom fields (AI Call Summary, AI Sentiment, AI Call Score, AI Call Outcome, AI Next Steps, Last AI Call Recording, Last AI Call). Pipelines cannot be created through the CRM API, so map outcomes onto an existing pipeline (include one in your snapshot).</li>' +
       '</ul>' +
-      '<h2>Speed-to-lead</h2><p>Turn it on in a client\'s deploy form (leads must have consented to be called), then add a <em>Custom Webhook</em> action to the client\'s HighLevel workflow using the URL shown there. The Outbound agent calls each new lead within seconds during calling hours, retries no-answers, and marks anyone who asks not to be called as Do Not Disturb.</p>' +
-      '<h2>SMS follow-up and alerts</h2><p>After a call, the client\'s HighLevel number can text a booking confirmation, a missed-call note, a lead nurture message or a ticket receipt. Keywords, unhappy callers and low QA scores raise alerts in the Command Deck.</p>' +
+      '<h2>Speed-to-lead</h2><p>Turn it on in a client\'s deploy form (leads must have consented to be called), then add a <em>Custom Webhook</em> action to the client\'s CRM workflow using the URL shown there. The Outbound agent calls each new lead within seconds during calling hours, retries no-answers, and marks anyone who asks not to be called as Do Not Disturb.</p>' +
+      '<h2>SMS follow-up and alerts</h2><p>After a call, the client\'s CRM number can text a booking confirmation, a missed-call note, a lead nurture message or a ticket receipt. Keywords, unhappy callers and low QA scores raise alerts in the Command Deck.</p>' +
       '<h2>Reports</h2><p>Every client has a white-labeled ROI report (calls, bookings, estimated revenue, return on AI cost, after-hours calls) that can be printed to PDF, plus a CSV export of every call.</p>' +
       '<h2>After every call</h2><p>The call is graded with your OpenAI key (score, sentiment, outcome, summary, next steps, coaching). The contact is found or created by caller ID, the AI fields are filled in, a note with the summary, recording link and transcript is added, outcome tags are applied, and the opportunity moves to the stage mapped to the outcome. Failed syncs retry automatically.</p>' +
-      '<h2>Client access</h2><p>Add the app as a custom menu link in sub-accounts: inside a sub-account the app signs the user in to that location only. You can also create client logins under <em>Team</em>, and serve the portal from your own domain under <em>Branding</em> (CNAME to <code>' + esc(cfg.baseHost) + '</code>).</p>' +
+      '<h2>Client access</h2><p>Add the app as a custom menu link in accounts: inside an account the app signs the user in to that location only. You can also create client logins under <em>Team</em>, and serve the portal from your own domain under <em>Branding</em> (CNAME to <code>' + esc(cfg.baseHost) + '</code>).</p>' +
       '<h2>Roles</h2><ul><li><strong>Owner / Admin:</strong> keys, deployments, branding, team.</li><li><strong>Manager:</strong> command deck with listen, whisper and takeover.</li><li><strong>Viewer:</strong> command deck, read only.</li></ul>' +
-      '<h2>HighLevel app settings</h2><ul>' +
+      '<h2>CRM app settings</h2><ul>' +
       '<li>Redirect URL: <code>' + esc(base) + '/oauth/callback</code></li>' +
-      '<li>Webhook URL: <code>' + esc(base) + '/webhooks/ghl</code> (INSTALL, UNINSTALL)</li>' +
+      '<li>Webhook URL: <code>' + esc(base) + '/webhooks/crm</code> (INSTALL, UNINSTALL)</li>' +
       '<li>Custom page / SSO URL: <code>' + esc(base) + '/embed</code></li>' +
       '<li>Scopes: <code>' + esc(cfg.ghl.scopes) + '</code></li></ul>' +
       '<h2>Support</h2><p>Email <a href="mailto:' + esc(cfg.brand.supportEmail) + '">' + esc(cfg.brand.supportEmail) + '</a>.</p></article>'
@@ -134,16 +134,16 @@ function legal(req, cfg, kind) {
   const n = esc(cfg.brand.legalName);
   const body = kind === 'privacy'
     ? '<h1>Privacy Policy</h1><p class="muted">Last updated ' + esc(cfg.brand.legalUpdated) + '</p>' +
-      '<p>' + n + ' ("we") provides software that agencies install to run AI phone agents for their clients.</p>' +
-      '<h2>What we store</h2><ul><li>Account details from the connected CRM (company id and name) and OAuth tokens, encrypted.</li><li>API keys the agency provides (Twilio, Vapi, OpenAI), encrypted with AES-256-GCM.</li><li>Call records: caller number, transcript, summary, QA grade, recording link (the recording itself stays with Vapi), and sync status.</li><li>Login emails and salted password hashes.</li></ul>' +
-      '<h2>How it is used</h2><p>Only to run the service: provisioning, live monitoring, grading with the agency\'s own OpenAI key, and syncing results to the connected CRM account. We do not sell data or use it to train models.</p>' +
-      '<h2>Processors</h2><p>Call audio and AI processing are handled by Twilio, Vapi and OpenAI under the agency\'s own accounts and their terms. Data is hosted on our cloud provider and MongoDB Atlas.</p>' +
+      '<p>' + n + ' ("we") provides software that companies install to run AI phone agents for their clients.</p>' +
+      '<h2>What we store</h2><ul><li>Account details from the connected CRM (company id and name) and OAuth tokens, encrypted.</li><li>API keys the company provides (Twilio, Vapi, OpenAI), encrypted with AES-256-GCM.</li><li>Call records: caller number, transcript, summary, QA grade, recording link (the recording itself stays with Vapi), and sync status.</li><li>Login emails and salted password hashes.</li></ul>' +
+      '<h2>How it is used</h2><p>Only to run the service: provisioning, live monitoring, grading with the company\'s own OpenAI key, and syncing results to the connected CRM account. We do not sell data or use it to train models.</p>' +
+      '<h2>Processors</h2><p>Call audio and AI processing are handled by Twilio, Vapi and OpenAI under the company\'s own accounts and their terms. Data is hosted on our cloud provider and MongoDB Atlas.</p>' +
       '<h2>Retention</h2><p>Call records are deleted automatically after 12 months, activity logs after 180 days. Uninstalling stops all processing; ask us to delete everything at any time.</p>' +
-      '<h2>Call recording consent</h2><p>Agencies and their clients are responsible for caller disclosures and consent required where they operate.</p>' +
+      '<h2>Call recording consent</h2><p>Companies and their clients are responsible for caller disclosures and consent required where they operate.</p>' +
       '<h2>Contact</h2><p>' + esc(cfg.brand.supportEmail) + '</p>'
     : '<h1>Terms of Service</h1><p class="muted">Last updated ' + esc(cfg.brand.legalUpdated) + '</p>' +
       '<p>By installing or using ' + n + ' you agree to these terms.</p>' +
-      '<h2>License</h2><p>Your purchase grants your agency a non-transferable license to use the software for your own and your clients\' businesses while the app is installed.</p>' +
+      '<h2>License</h2><p>Your purchase grants your company a non-transferable license to use the software for your own and your clients\' businesses while the app is installed.</p>' +
       '<h2>Your accounts and costs</h2><p>The service runs on your own Twilio, Vapi and OpenAI accounts. All usage charges from those providers are yours. Keep your keys valid and your accounts in good standing.</p>' +
       '<h2>Acceptable use</h2><p>You must comply with telemarketing, robocall, privacy and call-recording laws (for example TCPA and local consent rules) and the providers\' policies. No unlawful, deceptive or unsolicited automated calling.</p>' +
       '<h2>AI output</h2><p>AI agents can make mistakes. You are responsible for reviewing their configuration and outcomes.</p>' +

@@ -236,7 +236,7 @@ module.exports = function (app, ctx) {
       const ids = [].concat(b.locationIds || []).map(String);
       const deps = await store.find('deployments', { companyId: req.agency._id, _id: { $in: ids } });
       locationIds = deps.map((d) => d._id);
-      if (!locationIds.length) throw httpError(400, 'Pick at least one deployed sub-account');
+      if (!locationIds.length) throw httpError(400, 'Pick at least one deployed account');
       if (role === 'admin') throw httpError(400, 'Client users can be manager or viewer');
     }
     const password = String(b.password || '') || randomToken(9);
