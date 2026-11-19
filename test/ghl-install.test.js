@@ -2,7 +2,7 @@
 /* HighLevel OAuth (agency + sub-account installs), SSO variants, token refresh. */
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { setup, client } = require('./helpers');
+const { setup, client, rawRequest } = require('./helpers');
 const { encryptGhlSso } = require('../server/security');
 
 async function installed(t) {
@@ -22,7 +22,7 @@ test('sub-account install token is accepted and tracked', async (t) => {
   // Before the agency installs: explain the missing step instead of failing.
   let r = await c.req('GET', '/oauth/callback?code=xyz');
   assert.equal(r.status, 200);
-  assert.match(r.text, /agency has not installed it yet/);
+  assert.match(r.text, /account manager still needs to activate it/);
   assert.equal((await env.ctx.store.get('locationInstalls', 'loc2bbbbbbbb')).installed, true);
 
   env.fakes.state.ghl.nextInstall = 'Company';
@@ -30,7 +30,7 @@ test('sub-account install token is accepted and tracked', async (t) => {
   assert.match(r.location, /^\/app\/setup/);
   env.fakes.state.ghl.nextInstall = 'Location';
   r = await c.req('GET', '/oauth/callback?code=xyz');
-  assert.match(r.text, /Installed for this sub-account/);
+  assert.match(r.text, /<h1>Installed<\/h1>/);
   assert.equal((await env.ctx.store.get('agencies', 'comp1')).ghl.installerUserId, 'user1', 'agency token untouched by a location install');
 });
 
@@ -126,4 +126,48 @@ test('sweep runs from traffic (Vercel free plan), once per interval, and from th
   assert.equal(r.status, 200);
   r = await fetch(base + '/api/cron/sweep', { method: 'POST', headers: { 'x-cron-secret': 'wrong' } });
   assert.equal(r.status, 401);
+});
+
+test('white-label: clients never see platform names or "agency"', async (t) => {
+  const { neutral } = require('../server/whitelabel');
+  assert.equal(neutral('HighLevel: Contact not found'), 'Contact not found');
+  assert.equal(neutral('Vapi: Invalid Key'), 'Invalid Key');
+  assert.equal(neutral('The GoHighLevel API and Twilio failed; ask your agency'), 'The CRM API and the phone carrier failed; ask your provider');
+
+  const env = await setup();
+  t.after(() => env.server.close());
+  const c = client(env.base);
+  await c.req('GET', '/oauth/callback?code=abc');
+  await env.ctx.store.put('deployments', { _id: 'loc1aaaaaaaa', companyId: 'comp1', status: 'live', name: 'Bob' });
+  await env.ctx.store.patch('agencies', 'comp1', { branding: { name: 'Acme Voice', domain: 'calls.acme.com' } });
+  await env.ctx.store.put('domains', { _id: 'calls.acme.com', companyId: 'comp1', verified: true });
+  await env.ctx.store.put('calls', { _id: 'c1', companyId: 'comp1', locationId: 'loc1aaaaaaaa', status: 'ended', createdAt: new Date().toISOString(), customer: { number: '+1' }, transcript: [], sync: { state: 'failed', error: 'HighLevel: Contact not found' } });
+  const bad = /high ?level|\bghl\b|leadconnector|vapi|twilio|openai|\bagenc(y|ies)\b/i;
+
+  // Sub-account user via the CRM sidebar.
+  const sub = client(env.base);
+  let r = await sub.req('POST', '/api/auth/sso', { payload: encryptGhlSso({ userId: 'u1', companyId: 'comp1', type: 'location', role: 'admin', activeLocation: 'loc1aaaaaaaa' }, 'sso-key') });
+  for (const p of ['/deck', '/report', '/embed']) {
+    r = await sub.req('GET', p);
+    assert.equal(r.status, 200, p);
+    assert.ok(!bad.test(r.text.replace(/<script[\s\S]*?<\/script>/g, '')), p + ' leaks a platform name: ' + (r.text.match(bad) || [])[0]);
+  }
+  r = await sub.req('GET', '/');
+  assert.equal(r.location, '/deck');
+  r = await sub.req('GET', '/api/live/calls/c1');
+  assert.equal(r.json.sync.error, 'Contact not found');
+  for (const f of ['deck.js', 'report.js', 'audio.js', 'common.js', 'embed.js']) {
+    const js = await (await fetch(env.base + '/static/' + f)).text();
+    const visible = (js.match(/'[^'\n]*'/g) || []).filter((x) => bad.test(x) && !/\/api\/|REQUEST_USER_DATA/.test(x));
+    assert.deepEqual(visible, [], f + ' has user-facing platform names');
+  }
+  // Sub-account user whose call center is not set up: neutral wording.
+  r = await client(env.base).req('POST', '/api/auth/sso', { payload: encryptGhlSso({ userId: 'u9', companyId: 'comp1', type: 'location', activeLocation: 'loc9zzzzzzzz' }, 'sso-key') });
+  assert.ok(!bad.test(r.json.error), r.json.error);
+
+  // Custom portal domain: login page clean, vendor pages not served.
+  r = await rawRequest(env.base, 'GET', '/login', { host: 'calls.acme.com' });
+  assert.ok(!bad.test(r.body), 'custom-domain login leaks: ' + (r.body.match(bad) || [])[0]);
+  assert.match(r.body, /Acme Voice/);
+  for (const p of ['/docs', '/privacy', '/terms']) assert.equal((await rawRequest(env.base, 'GET', p, { host: 'calls.acme.com' })).status, 302, p);
 });

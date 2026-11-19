@@ -20,7 +20,9 @@ function page(req, o) {
     '</head><body class="' + esc(o.bodyClass || '') + '">' +
     (o.bare ? '' : '<header class="topbar"><a class="brand" href="/">' + logo + '<span>' + esc(name) + '</span></a><nav id="topnav">' + (o.nav || '') + '</nav></header>') +
     '<main id="main" class="' + esc(o.mainClass || 'container') + '">' + o.body + '</main>' +
-    (o.footer === false || b.hidePoweredBy ? '' : '<footer class="foot"><a href="/docs">Docs</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></footer>') +
+    // Footer links point to the vendor's site, so they only appear on the
+    // vendor's own marketing pages, never in a client's or white-label view.
+    (!o.marketing || req.brandCompanyId || b.hidePoweredBy ? '' : '<footer class="foot"><a href="/docs">Docs</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></footer>') +
     data + '<script src="/static/common.js" defer></script>' + scripts +
     '</body></html>';
 }

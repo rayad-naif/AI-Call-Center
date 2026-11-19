@@ -10,13 +10,17 @@ module.exports = function (app, ctx) {
     if (!req.brandCompanyId && req.session) req.brand = await branding.forCompany(req.session.companyId);
   }
 
+  // Signed-in users never land on the vendor's marketing page.
   app.get('/', h(async (req, res) => {
-    if (req.session && req.brandCompanyId) return res.redirect('/deck');
+    if (req.session) return res.redirect(req.session.kind === 'agency' && ctx.auth.can(req.session, 'admin') ? '/app' : '/deck');
     res.type('html').send(views.landing(req, cfg));
   }));
-  app.get('/docs', (req, res) => res.type('html').send(views.docs(req, cfg)));
-  app.get('/privacy', (req, res) => res.type('html').send(views.legal(req, cfg, 'privacy')));
-  app.get('/terms', (req, res) => res.type('html').send(views.legal(req, cfg, 'terms')));
+  // The vendor's docs and legal pages describe the platform underneath, so a
+  // white-label portal domain never serves them.
+  const vendorOnly = (fn) => (req, res) => (req.brandCompanyId ? res.redirect('/login') : fn(req, res));
+  app.get('/docs', vendorOnly((req, res) => res.type('html').send(views.docs(req, cfg))));
+  app.get('/privacy', vendorOnly((req, res) => res.type('html').send(views.legal(req, cfg, 'privacy'))));
+  app.get('/terms', vendorOnly((req, res) => res.type('html').send(views.legal(req, cfg, 'terms'))));
 
   app.get('/app', h(async (req, res) => {
     const s = req.session;

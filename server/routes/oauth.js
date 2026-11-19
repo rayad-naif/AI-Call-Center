@@ -27,11 +27,11 @@ module.exports = function (app, ctx) {
       await store.log(t.companyId, 'app.location_installed', t.locationId, { locationId: t.locationId });
       const ag = await store.get('agencies', t.companyId);
       if (!ag || !ag.installed) {
-        return res.type('html').send(views.message(req, 'One more step', 'The app was added to this sub-account, but your agency has not installed it yet. An agency admin needs to install it from the HighLevel Marketplace at agency level (Agency view), then deploy the call center for this sub-account.'));
+        return res.type('html').send(views.message(req, 'Almost there', 'The app was added to your account. Your account manager still needs to activate it and set up your AI call center. Contact them to finish.'));
       }
       const dep = await store.get('deployments', t.locationId);
-      return res.type('html').send(views.message(req, 'Installed for this sub-account',
-        dep && dep.status === 'live' ? 'Your AI call center is live. Open it from this sub-account\'s left menu.' : 'Your agency can now deploy the AI call center to this sub-account from its console. Once it is live, open it from the left menu.'));
+      return res.type('html').send(views.message(req, 'Installed',
+        dep && dep.status === 'live' ? 'Your AI call center is live. Open it from the left menu.' : 'Your account manager can now set up your AI call center. Once it is live, open it from the left menu.'));
     }
 
     let company = {};
@@ -68,13 +68,13 @@ module.exports = function (app, ctx) {
 
   app.get('/app/setup', h(async (req, res) => {
     const s = sec.unsign(String(req.query.t || ''));
-    if (!s || !s.setup) return res.status(400).type('html').send(views.message(req, 'Link expired', 'Open the app from HighLevel again to finish setup.'));
+    if (!s || !s.setup) return res.status(400).type('html').send(views.message(req, 'Link expired', 'Open the app from your CRM again to finish setup.'));
     res.type('html').send(views.setup(req, String(req.query.t)));
   }));
 
   app.post('/api/auth/setup', csrf, h(async (req, res) => {
     const s = sec.unsign(String(req.body.t || ''));
-    if (!s || !s.setup) return res.status(400).json({ error: 'This setup link expired. Open the app from HighLevel again.' });
+    if (!s || !s.setup) return res.status(400).json({ error: 'This setup link expired. Open the app from your CRM again.' });
     const email = String(req.body.email || '').trim().toLowerCase();
     const password = String(req.body.password || '');
     const name = String(req.body.name || '').trim().slice(0, 80);
@@ -121,10 +121,10 @@ module.exports = function (app, ctx) {
     if (!cfg.ghl.ssoKey) return res.status(500).json({ error: 'SSO is not configured (GHL_SSO_KEY)' });
     if (!ctx.limits.login('sso:' + req.ip)) return res.status(429).json({ error: 'Too many attempts' });
     const u = decryptGhlSso(req.body.payload, cfg.ghl.ssoKey);
-    if (!u || !u.userId || !u.companyId) return res.status(401).json({ error: 'HighLevel sign-in failed. Reload the page.' });
+    if (!u || !u.userId || !u.companyId) return res.status(401).json({ error: 'Sign-in failed. Reload the page.' });
     const agency = await store.get('agencies', u.companyId);
-    if (!agency || !agency.installed) return res.status(403).json({ error: 'Your agency has not installed this app yet.', install: '/install' });
-    if (agency.status === 'suspended') return res.status(403).json({ error: 'This license is suspended.' });
+    if (!agency || !agency.installed) return res.status(403).json({ error: u.activeLocation || u.locationId ? 'This service is not available on your account yet. Contact your account manager.' : 'This app is not installed for your company yet.', install: u.activeLocation || u.locationId ? undefined : '/install' });
+    if (agency.status === 'suspended') return res.status(403).json({ error: 'This service is paused. Contact your account manager.' });
 
     // Field names differ slightly between HighLevel versions; accept both.
     const locationId = u.activeLocation || u.locationId || '';
@@ -133,7 +133,7 @@ module.exports = function (app, ctx) {
       // Inside a sub-account: the client view of that location only.
       const dep = await store.get('deployments', locationId);
       if (!dep || dep.companyId !== u.companyId || dep.status === 'removed') {
-        return res.status(404).json({ error: 'The AI call center is not set up for this sub-account yet. Ask your agency to deploy it.' });
+        return res.status(404).json({ error: 'Your AI call center is not set up yet. Contact your account manager to turn it on.' });
       }
       const role = u.type === 'agency' || u.role === 'admin' ? 'manager' : 'viewer';
       auth.setSession(res, Object.assign(base, { kind: 'client', role, locationIds: [locationId], locationId }));

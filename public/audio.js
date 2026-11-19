@@ -1,6 +1,6 @@
-/* Live listen: plays a call's audio straight from Vapi's listen WebSocket
+/* Live listen: plays a call's audio straight from the voice service's WebSocket
    (raw 16-bit little-endian PCM). The audio never passes through our server.
-   The format can be switched in the deck if a Vapi account streams a
+   The format can be switched in the deck if an account streams a
    different rate/channel layout. */
 (function () {
   'use strict';

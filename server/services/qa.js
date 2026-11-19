@@ -10,6 +10,8 @@
 const { OUTCOMES } = require('./provisioner');
 
 const MAX_ATTEMPTS = 5;
+// Shown as the contact "Source" in the client's CRM: the agency's brand.
+const contactSource = (agency) => ((agency && agency.branding && agency.branding.name) || 'AI Phone Agent').slice(0, 60);
 
 const GRADE_SCHEMA = {
   type: 'object',
@@ -74,7 +76,7 @@ function createQaService(ctx) {
     const number = call.customer && call.customer.number;
     if (!number) return { skipped: 'no caller ID' };
     const api = await agencySvc.locationApi(agency, dep._id);
-    const contactInput = { locationId: dep._id, phone: number, source: 'AI Call Center' };
+    const contactInput = { locationId: dep._id, phone: number, source: contactSource(agency) };
     if (g && g.callerName) {
       const [first, ...rest] = g.callerName.trim().split(/\s+/);
       contactInput.firstName = first; if (rest.length) contactInput.lastName = rest.join(' ');
@@ -168,4 +170,4 @@ function createQaService(ctx) {
   return { grade, syncCrm, processCall, retryQueued, GRADE_SCHEMA };
 }
 
-module.exports = { createQaService, GRADE_SCHEMA, noteBody };
+module.exports = { createQaService, GRADE_SCHEMA, noteBody, contactSource };

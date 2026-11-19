@@ -16,7 +16,7 @@ function login(req) {
       '<label>Password<input name="password" type="password" autocomplete="current-password" required></label>' +
       '<label class="row"><input type="checkbox" name="remember" value="1"> Keep me signed in for 7 days</label>' +
       '<button class="btn primary wide" type="submit">Sign in</button><p class="form-error" role="alert"></p>' +
-      '<p class="muted small">Inside HighLevel, open the app from the sidebar instead: it signs you in automatically.</p>' +
+      '<p class="muted small">Inside your CRM, open it from the left menu instead: it signs you in automatically.</p>' +
       '</form></div>'
   });
 }
@@ -25,7 +25,7 @@ function setup(req, token) {
   return page(req, {
     title: 'Create your login',
     body: '<div class="center"><form class="card narrow" data-form="/api/auth/setup">' +
-      '<h1>Create the owner login</h1><p class="muted">You will use this to open the agency console outside HighLevel.</p>' +
+      '<h1>Create the owner login</h1><p class="muted">You will use this to open the console outside your CRM.</p>' +
       '<input type="hidden" name="t" value="' + esc(token) + '">' +
       '<label>Your name<input name="name" autocomplete="name"></label>' +
       '<label>Email<input name="email" type="email" autocomplete="username" required></label>' +
@@ -36,7 +36,7 @@ function setup(req, token) {
 
 const embed = (req) => page(req, {
   title: 'Loading', bare: true, footer: false,
-  body: '<div class="center"><div class="card narrow" id="sso"><div class="spinner"></div><p>Signing you in with HighLevel…</p></div></div>',
+  body: '<div class="center"><div class="card narrow" id="sso"><div class="spinner"></div><p>Signing you in…</p></div></div>',
   scripts: ['/static/embed.js']
 });
 
@@ -52,7 +52,7 @@ const deck = (req, opts) => page(req, {
   nav: (opts.agency ? '<a href="/app">Agency console</a>' : '') + '<a href="/report' + (opts.location ? '?location=' + encodeURIComponent(opts.location) : '') + '" id="report-link">Report</a><span id="voice-status" class="pill" hidden></span><button class="link" data-logout>Sign out</button>',
   body: '<div id="deck"><div class="spinner"></div></div>',
   footer: false,
-  data: { twilioSdk: TWILIO_SDK, location: opts.location || '' },
+  data: { voiceSdk: TWILIO_SDK, voiceGlobal: 'Twilio', location: opts.location || '' },
   scripts: ['/static/audio.js', '/static/deck.js']
 });
 
@@ -80,6 +80,7 @@ function landing(req, cfg) {
   if (req.brandCompanyId) return login(req); // custom portal domain: straight to sign-in
   const install = cfg.brand.marketplaceUrl || '/install';
   return page(req, {
+    marketing: true,
     nav: '<a href="/docs">Docs</a><a href="/login">Sign in</a>',
     body: '<section class="hero"><h1>Your agency\'s own AI call center</h1>' +
       '<p class="lead">Plug in your Twilio, Vapi and OpenAI keys once. Deploy a receptionist, a sales closer and a support agent to any client in minutes, watch every call live, step in when it matters, and have every call graded and logged in HighLevel.</p>' +
@@ -100,7 +101,7 @@ function docs(req, cfg) {
   const base = cfg.baseUrl;
   const step = (t, d) => '<li><strong>' + esc(t) + '</strong><br>' + d + '</li>';
   return page(req, {
-    title: 'Documentation', nav: '<a href="/login">Sign in</a>',
+    title: 'Documentation', marketing: true, nav: '<a href="/login">Sign in</a>',
     body: '<article class="prose"><h1>Documentation</h1>' +
       '<h2>Getting started</h2><ol>' +
       step('Install', 'Install the app from the HighLevel Marketplace as an agency admin, then create your owner login.') +
@@ -112,7 +113,7 @@ function docs(req, cfg) {
       '<h2>What gets created</h2><ul>' +
       '<li><strong>Twilio:</strong> a subaccount per client and a local number in it. Once per agency: an API key, a TwiML app and a "takeover line" number for browser takeover.</li>' +
       '<li><strong>Vapi:</strong> your OpenAI key as a provider credential, three assistants (Receptionist, Sales, Support), a Squad that hands calls between them, and the imported phone number.</li>' +
-      '<li><strong>HighLevel:</strong> contact custom fields (AI Call Summary, AI Sentiment, AI Call Score, AI Call Outcome, AI Next Steps, Last AI Call Recording, Last AI Call). Pipelines cannot be created through the HighLevel API, so map outcomes onto an existing pipeline (include one in your snapshot).</li>' +
+      '<li><strong>CRM (HighLevel):</strong> contact custom fields (AI Call Summary, AI Sentiment, AI Call Score, AI Call Outcome, AI Next Steps, Last AI Call Recording, Last AI Call). Pipelines cannot be created through the HighLevel API, so map outcomes onto an existing pipeline (include one in your snapshot).</li>' +
       '</ul>' +
       '<h2>Speed-to-lead</h2><p>Turn it on in a client\'s deploy form (leads must have consented to be called), then add a <em>Custom Webhook</em> action to the client\'s HighLevel workflow using the URL shown there. The Outbound agent calls each new lead within seconds during calling hours, retries no-answers, and marks anyone who asks not to be called as Do Not Disturb.</p>' +
       '<h2>SMS follow-up and alerts</h2><p>After a call, the client\'s HighLevel number can text a booking confirmation, a missed-call note, a lead nurture message or a ticket receipt. Keywords, unhappy callers and low QA scores raise alerts in the Command Deck.</p>' +
@@ -134,8 +135,8 @@ function legal(req, cfg, kind) {
   const body = kind === 'privacy'
     ? '<h1>Privacy Policy</h1><p class="muted">Last updated ' + esc(cfg.brand.legalUpdated) + '</p>' +
       '<p>' + n + ' ("we") provides software that agencies install to run AI phone agents for their clients.</p>' +
-      '<h2>What we store</h2><ul><li>Agency account details from HighLevel (company id and name) and OAuth tokens, encrypted.</li><li>API keys the agency provides (Twilio, Vapi, OpenAI), encrypted with AES-256-GCM.</li><li>Call records: caller number, transcript, summary, QA grade, recording link (the recording itself stays with Vapi), and sync status.</li><li>Login emails and salted password hashes.</li></ul>' +
-      '<h2>How it is used</h2><p>Only to run the service: provisioning, live monitoring, grading with the agency\'s own OpenAI key, and syncing results to the agency\'s HighLevel account. We do not sell data or use it to train models.</p>' +
+      '<h2>What we store</h2><ul><li>Account details from the connected CRM (company id and name) and OAuth tokens, encrypted.</li><li>API keys the agency provides (Twilio, Vapi, OpenAI), encrypted with AES-256-GCM.</li><li>Call records: caller number, transcript, summary, QA grade, recording link (the recording itself stays with Vapi), and sync status.</li><li>Login emails and salted password hashes.</li></ul>' +
+      '<h2>How it is used</h2><p>Only to run the service: provisioning, live monitoring, grading with the agency\'s own OpenAI key, and syncing results to the connected CRM account. We do not sell data or use it to train models.</p>' +
       '<h2>Processors</h2><p>Call audio and AI processing are handled by Twilio, Vapi and OpenAI under the agency\'s own accounts and their terms. Data is hosted on our cloud provider and MongoDB Atlas.</p>' +
       '<h2>Retention</h2><p>Call records are deleted automatically after 12 months, activity logs after 180 days. Uninstalling stops all processing; ask us to delete everything at any time.</p>' +
       '<h2>Call recording consent</h2><p>Agencies and their clients are responsible for caller disclosures and consent required where they operate.</p>' +
@@ -149,7 +150,7 @@ function legal(req, cfg, kind) {
       '<h2>Warranty and liability</h2><p>The software is provided "as is". Our total liability is limited to the amount you paid for the license.</p>' +
       '<h2>Termination</h2><p>We may suspend licenses used in breach of these terms.</p>' +
       '<h2>Contact</h2><p>' + esc(cfg.brand.supportEmail) + '</p>';
-  return page(req, { title: kind === 'privacy' ? 'Privacy' : 'Terms', body: '<article class="prose">' + body + '</article>' });
+  return page(req, { title: kind === 'privacy' ? 'Privacy' : 'Terms', marketing: true, body: '<article class="prose">' + body + '</article>' });
 }
 
 module.exports = { message, login, setup, embed, consolePage, deck, report, adminLogin, admin, landing, docs, legal, TWILIO_SDK };

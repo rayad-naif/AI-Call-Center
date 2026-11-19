@@ -13,6 +13,8 @@ function fmtSlot(iso, tz) {
   return d.toLocaleString('en-US', { timeZone: tz, weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
+const { contactSource } = require('./qa');
+
 function createToolService(ctx) {
   const { store, agencySvc } = ctx;
 
@@ -48,7 +50,7 @@ function createToolService(ctx) {
       const phone = (env.call.customer && env.call.customer.number) || '';
       const [first, ...rest] = String(args.name || '').trim().split(/\s+/);
       const contact = await env.api.upsertContact(Object.assign(
-        { locationId: env.dep._id, phone, firstName: first || undefined, lastName: rest.join(' ') || undefined, source: 'AI Call Center' },
+        { locationId: env.dep._id, phone, firstName: first || undefined, lastName: rest.join(' ') || undefined, source: env.source },
         args.email && /@/.test(args.email) ? { email: args.email } : {},
         args.address ? { address1: String(args.address).slice(0, 200) } : {}
       ));
@@ -77,7 +79,7 @@ function createToolService(ctx) {
 
     async mark_do_not_call(args, env) {
       const phone = (env.call.customer && env.call.customer.number) || '';
-      const contact = await env.api.upsertContact({ locationId: env.dep._id, phone, source: 'AI Call Center' });
+      const contact = await env.api.upsertContact({ locationId: env.dep._id, phone, source: env.source });
       const contactId = contact && (contact.id || contact._id);
       await env.api.setDnd(contactId).catch(() => {});
       await env.api.addTags(contactId, ['ai-do-not-call']).catch(() => {});
@@ -87,7 +89,7 @@ function createToolService(ctx) {
 
     async create_support_ticket(args, env) {
       const phone = (env.call.customer && env.call.customer.number) || '';
-      const contact = await env.api.upsertContact({ locationId: env.dep._id, phone, source: 'AI Call Center' });
+      const contact = await env.api.upsertContact({ locationId: env.dep._id, phone, source: env.source });
       const contactId = contact && (contact.id || contact._id);
       const urgency = ['low', 'normal', 'high', 'emergency'].includes(args.urgency) ? args.urgency : 'normal';
       await env.api.addNote(contactId, '🎫 Support ticket from AI call (' + urgency + ')\n' + String(args.issue || '').slice(0, 3000));
@@ -115,7 +117,7 @@ function createToolService(ctx) {
         if (!h) result = 'Unknown tool ' + name;
         else {
           if (!api) api = await agencySvc.locationApi(agency, dep._id);
-          result = await h(parseArgs(fn.arguments || tc.arguments), { dep, call, api });
+          result = await h(parseArgs(fn.arguments || tc.arguments), { dep, call, api, source: contactSource(agency) });
         }
       } catch (e) {
         result = 'That did not work (' + e.message.slice(0, 120) + '). Apologize and offer a callback from the team.';

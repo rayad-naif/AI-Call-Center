@@ -1,5 +1,5 @@
 /* Live Command Deck: live grid, real-time transcript, listen, whisper,
-   say, mute, transfer, browser takeover (Twilio Voice SDK), history + QA. */
+   say, mute, transfer, browser takeover (WebRTC), history + QA. */
 (function () {
   'use strict';
   const { api, h, toast, fmtTime, fmtDur, since, busy, boot } = window.ACC;
@@ -252,7 +252,7 @@
   }
   function stopListening() { if (S.listener) { S.listener.close(); S.listener = null; } }
 
-  /* ---------- takeover (Twilio Voice SDK in the browser) ---------- */
+  /* ---------- takeover (WebRTC calling in the browser) ---------- */
   function loadScript(src) {
     return new Promise((resolve, reject) => {
       const s = document.createElement('script');
@@ -267,10 +267,10 @@
     try {
       const t = await api('GET', '/api/live/voice-token');
       if (!t.enabled) { S.voiceReason = t.reason; return; }
-      await loadScript(B.twilioSdk);
-      const device = new window.Twilio.Device(t.token, { closeProtection: true, codecPreferences: ['opus', 'pcmu'] });
+      await loadScript(B.voiceSdk);
+      const device = new window[B.voiceGlobal].Device(t.token, { closeProtection: true, codecPreferences: ['opus', 'pcmu'] });
       device.on('registered', () => voicePill('Takeover ready', 'ok'));
-      device.on('error', (e) => { voicePill('Calling error', 'err'); console.warn('Twilio Device error', e); });
+      device.on('error', (e) => { voicePill('Calling error', 'err'); console.warn('Calling device error', e); });
       device.on('tokenWillExpire', async () => { const n = await api('GET', '/api/live/voice-token').catch(() => null); if (n && n.token) device.updateToken(n.token); });
       device.on('incoming', (call) => {
         // Only accept calls we asked for (a takeover from this browser).

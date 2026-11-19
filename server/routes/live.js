@@ -3,6 +3,7 @@
    Twilio Voice SDK token for browser takeover. */
 const { h, csrf, requireSession, withAgency, httpError } = require('./util');
 const { twilioAccessToken } = require('../security');
+const { neutral, isClientView } = require('../whitelabel');
 
 module.exports = function (app, ctx) {
   const { calls, auth, store, sec, agencySvc } = ctx;
@@ -54,6 +55,7 @@ module.exports = function (app, ctx) {
   app.get('/api/live/calls/:id', ...viewer, polled, h(async (req, res) => {
     const d = await calls.detail(scopeOf(req), req.params.id, req.query.after);
     if (!d) throw httpError(404, 'Call not found');
+    if (isClientView(req) && d.sync && d.sync.error) d.sync = Object.assign({}, d.sync, { error: neutral(d.sync.error) });
     res.json(d);
   }));
 

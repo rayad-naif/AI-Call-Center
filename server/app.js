@@ -16,6 +16,7 @@ const { createToolService } = require('./services/tools');
 const { createBranding } = require('./services/branding');
 const { createAutomation } = require('./services/automation');
 const { createAuth } = require('./auth');
+const { neutral, isClientView } = require('./whitelabel');
 
 /* Run work after the response is sent. On Vercel, waitUntil keeps the
    function alive for it; elsewhere the process simply carries on. */
@@ -149,7 +150,8 @@ function createApp(cfg, deps) {
   app.use((err, req, res, next) => {
     const status = err.status && err.status >= 400 && err.status < 600 ? err.status : (err.provider ? 502 : 500);
     if (status >= 500) console.error('[error] ' + req.method + ' ' + req.path + ': ' + (err.stack || err.message));
-    const message = status >= 500 && !err.provider ? 'Something went wrong. Please try again.' : err.message;
+    let message = status >= 500 && !err.provider ? 'Something went wrong. Please try again.' : err.message;
+    if (isClientView(req)) message = neutral(message);
     if (req.path.startsWith('/api/') || req.path.startsWith('/webhooks/')) return res.status(status).json({ error: message, step: err.step });
     res.status(status).type('html').send(require('./views/layout').page(req, { title: 'Error', body: '<div class="center"><h1>Something went wrong</h1><p>' + require('./views/layout').esc(message) + '</p></div>' }));
   });

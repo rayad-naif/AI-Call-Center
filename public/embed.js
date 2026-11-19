@@ -1,4 +1,4 @@
-/* HighLevel custom page: ask the parent CRM frame for the encrypted user
+/* CRM custom page: ask the parent CRM frame for the encrypted user
    context, exchange it for a session, then open the right view. */
 (function () {
   'use strict';
@@ -22,7 +22,7 @@
     } catch (err) { fail(err.message, err.data && err.data.install); }
   });
 
-  if (window.parent === window) return fail('Open this page from the HighLevel sidebar.');
+  if (window.parent === window) return fail('Open this page from the left menu of your CRM.');
   window.parent.postMessage({ message: 'REQUEST_USER_DATA' }, '*');
-  setTimeout(() => { if (!done) fail('HighLevel did not respond. Reload the page.'); }, 10000);
+  setTimeout(() => { if (!done) fail('Sign-in did not respond. Reload the page.'); }, 10000);
 })();
