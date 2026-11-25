@@ -1,8 +1,8 @@
 'use strict';
 /* Shadow QA + CRM sync, run after each call ends:
-     1. Grade the call with the agency's OpenAI key (score, sentiment,
+     1. Grade the call with the company's OpenAI key (score, sentiment,
         outcome, summary, next steps, coaching).
-     2. Find or create the GHL contact by caller number.
+     2. Find or create the CRM contact by caller number.
      3. Write the AI custom fields, a note with the summary, transcript and
         recording link, and outcome tags.
      4. Move the opportunity to the pipeline stage mapped to the outcome.
@@ -10,7 +10,7 @@
 const { OUTCOMES } = require('./provisioner');
 
 const MAX_ATTEMPTS = 5;
-// Shown as the contact "Source" in the client's CRM: the agency's brand.
+// Shown as the contact "Source" in the client's CRM: the company's brand.
 const contactSource = (agency) => ((agency && agency.branding && agency.branding.name) || 'AI Phone Agent').slice(0, 60);
 
 const GRADE_SCHEMA = {
@@ -153,7 +153,7 @@ function createQaService(ctx) {
     }
   }
 
-  // Calls waiting for QA/CRM sync, across every agency and sub-account.
+  // Calls waiting for QA/CRM sync, across every company and account.
   // A failed attempt waits 5 minutes before the next one, so the 5 tries are
   // spread out instead of burned in one sweep.
   async function retryQueued(limit) {

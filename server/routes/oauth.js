@@ -1,6 +1,6 @@
 'use strict';
-/* Install (HighLevel OAuth), owner setup, email/password login and
-   HighLevel custom-page SSO. */
+/* Install (CRM OAuth), owner setup, email/password login and
+   CRM custom-page SSO. */
 const { h, csrf } = require('./util');
 const { randomToken, hashPassword, verifyPassword, decryptGhlSso } = require('../security');
 const views = require('../views/pages');
@@ -14,8 +14,8 @@ module.exports = function (app, ctx) {
   const { store, sec, cfg, ghl, auth } = ctx;
 
   /* One deployment, two Marketplace apps (cfg.apps):
-       standard  /install          -> /oauth/callback          (Target User: Sub-account)
-       agency    /install/agency   -> /oauth/agency/callback   (Target User: Agency) */
+       standard  /install          -> /oauth/callback          (Target User: Account)
+       agency     /install/company   -> /oauth/company/callback   (company app; internal key 'agency') */
   const install = (appKey) => (req, res) => {
     if (!cfg.apps[appKey].clientId) return res.status(404).type('html').send(views.message(req, 'Not available', 'This app is not configured.'));
     const state = randomToken(16);
@@ -23,17 +23,18 @@ module.exports = function (app, ctx) {
     res.redirect(ghl.authorizeUrl(state, appKey));
   };
   app.get('/install', install('standard'));
-  app.get('/install/agency', install('agency'));
+  app.get(['/install/company', '/install/agency'], install('agency'));
   app.get('/oauth/callback', h((req, res) => callback('standard', req, res)));
-  app.get('/oauth/agency/callback', h((req, res) => callback('agency', req, res)));
+  // /oauth/company/callback is the address shown everywhere; the older /oauth/agency/callback stays as an alias.
+  app.get(['/oauth/company/callback', '/oauth/agency/callback'], h((req, res) => callback('agency', req, res)));
 
   async function callback(appKey, req, res) {
     const code = String(req.query.code || '');
     if (!code) return res.status(400).type('html').send(views.message(req, 'Install cancelled', 'The CRM did not send an authorization code.'));
     if (!cfg.apps[appKey].clientId) return res.status(404).type('html').send(views.message(req, 'Not available', 'This app is not configured.'));
-    const t = await ghl.exchangeCode(code, appKey);
+    const t = await ghl.exchangeCode(code, appKey, cfg.baseUrl + req.path);
     if (appKey === 'agency' && t.userType !== 'Company') {
-      return res.status(400).type('html').send(views.message(req, 'Install at company level', 'This app is installed by the company (company view), not inside a single account.'));
+      return res.status(400).type('html').send(views.message(req, 'Install at company level', 'This app is installed by the company, not inside a single account.'));
     }
 
     /* Single-account install (userType "Location"). Two cases:
@@ -134,7 +135,7 @@ module.exports = function (app, ctx) {
     const u = (await store.find('users', { email }, { limit: 1 }))[0];
     const ok = await verifyPassword(String(req.body.password || ''), u && u.passwordHash);
     if (!ok || u.disabled) return res.status(401).json({ error: 'Wrong email or password' });
-    // On a custom portal domain, only that agency's users may sign in.
+    // On a custom portal domain, only that company's users may sign in.
     if (req.brandCompanyId && u.companyId !== req.brandCompanyId) return res.status(401).json({ error: 'Wrong email or password' });
     const agency = await store.get('agencies', u.companyId);
     if (!agency || !agency.installed || agency.status === 'suspended') return res.status(403).json({ error: 'This account is not active. Contact your provider.' });
@@ -145,7 +146,7 @@ module.exports = function (app, ctx) {
 
   app.post('/api/auth/logout', csrf, (req, res) => { auth.clearSession(res); res.json({ ok: true, redirect: '/login' }); });
 
-  /* HighLevel custom page. The page asks its parent frame for the encrypted
+  /* CRM custom page. The page asks its parent frame for the encrypted
      user context (REQUEST_USER_DATA) and posts it here. */
   // Already signed in (same as opening /app): go straight in, no CRM handshake.
   // ?sso=1 forces a fresh CRM sign-in (e.g. to switch user or account).
@@ -158,16 +159,16 @@ module.exports = function (app, ctx) {
   app.post('/api/auth/sso', csrf, h(async (req, res) => {
     // Either app can open the sidebar page; try each app's SSO key.
     const keys = Object.values(cfg.apps).map((a) => a.ssoKey).filter(Boolean);
-    if (!keys.length) return res.status(500).json({ error: 'SSO is not configured (GHL_SSO_KEY / GHL_AGENCY_SSO_KEY)' });
+    if (!keys.length) return res.status(500).json({ error: 'SSO is not configured (CRM_SSO_KEY / CRM_COMPANY_SSO_KEY)' });
     if (!ctx.limits.login('sso:' + req.ip)) return res.status(429).json({ error: 'Too many attempts' });
     let u = null;
     for (const k of keys) { u = decryptGhlSso(req.body.payload, k); if (u) break; }
     if (!u || !u.userId || !u.companyId) {
       // Usually the SSO key in the env vars does not match the app's key. Visible in Super Admin > Activity.
-      await store.log(null, 'sso.failed', 'Could not decrypt the CRM user data: check GHL_SSO_KEY / GHL_AGENCY_SSO_KEY match the apps\' SSO keys');
+      await store.log(null, 'sso.failed', 'Could not decrypt the CRM user data: check CRM_SSO_KEY / CRM_COMPANY_SSO_KEY match the apps\' SSO keys');
       return res.status(401).json({ error: 'Sign-in failed (code SSO-KEY). Reload the page, or sign in with email.', code: 'sso_key' });
     }
-    // Field names differ slightly between HighLevel versions; accept both.
+    // Field names differ slightly between CRM versions; accept both.
     const locationId = u.activeLocation || u.locationId || '';
     const base = { uid: 'ghl:' + u.userId, name: u.userName || u.name || '', email: (u.email || '').toLowerCase() };
     const agency = await store.get('agencies', u.companyId);

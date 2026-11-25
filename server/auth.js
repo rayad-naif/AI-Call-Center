@@ -1,15 +1,15 @@
 'use strict';
 /* Sessions, roles and data scoping.
 
-   kind 'agency'  agency owner/staff: every client of their company.
-   kind 'client'  the agency's client (e.g. the plumber): exactly one location.
+   kind 'agency'   (internal value) company owner/staff: every client of their company.
+   kind 'client'  the company's client (e.g. the plumber): exactly one location.
 
    Roles: owner > admin > manager > viewer.
      owner/admin  keys, deployments, branding, users
      manager      command deck incl. whisper / takeover
      viewer       command deck read-only
 
-   Cookies are SameSite=None because the app runs inside the HighLevel iframe;
+   Cookies are SameSite=None because the app runs inside the CRM iframe;
    every state-changing API call must send the X-ACC header (a cross-site form
    cannot), which is the CSRF defence. */
 const { sha256 } = require('./security');
@@ -33,7 +33,7 @@ function createAuth(cfg, ctx) {
 
   function cookieAttrs(maxAgeSec) {
     const a = ['Path=/', 'HttpOnly'];
-    // Partitioned (CHIPS) keeps the cookie working inside the HighLevel iframe
+    // Partitioned (CHIPS) keeps the cookie working inside the CRM iframe
     // in browsers that block third-party cookies.
     if (cfg.secureCookies) a.push('Secure', 'SameSite=None', 'Partitioned'); else a.push('SameSite=Lax');
     if (maxAgeSec !== undefined) a.push('Max-Age=' + maxAgeSec);
@@ -64,7 +64,7 @@ function createAuth(cfg, ctx) {
       if (!u || u.disabled || (u.sessionVersion || 0) !== (s.ver || 0)) return null;
       s.name = u.name || s.name; s.role = u.role; s.locationIds = u.locationIds || null;
     }
-    // A custom portal domain only accepts sessions of the agency that owns it.
+    // A custom portal domain only accepts sessions of the company that owns it.
     if (req.brandCompanyId && req.brandCompanyId !== s.companyId) return null;
     req.session = s;
     return s;

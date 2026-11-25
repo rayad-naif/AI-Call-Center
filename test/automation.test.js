@@ -52,7 +52,7 @@ test('speed-to-lead: webhook -> outbound call -> retry on no answer -> connected
   assert.equal((await post(base + '/hooks/lead/loc1aaaaaaaa/wrongkey', { phone: '5125557777' })).status, 404);
   assert.equal((await post(url, { first_name: 'Sam' })).status, 400, 'no phone');
 
-  // GoHighLevel workflow "Custom Webhook" body shape.
+  // CRM workflow "Custom Webhook" body shape.
   let r = await post(url, { contact_id: 'c1', first_name: 'Sam', full_name: 'Sam Lee', phone: '(512) 555-7777', customData: { interest: 'a roof repair' } });
   assert.equal(r.status, 202, JSON.stringify(r.json));
   await env.settle();
@@ -182,14 +182,14 @@ test('helpers', () => {
   assert.equal(agents.normalizeAgent({ language: 'klingon' }).language, 'en');
 });
 
-test('one sweep clears queued leads across agencies and sub-accounts in batches', async (t) => {
+test('one sweep clears queued leads across companies and accounts in batches', async (t) => {
   const env = await deployed(t);
   const { ctx, fakes } = env;
-  // A second sub-account (another client of the same agency) and a second agency.
+  // A second account (another client of the same company) and a second company.
   const base = await ctx.store.get('deployments', 'loc1aaaaaaaa');
   await ctx.store.put('deployments', Object.assign({}, base, { _id: 'loc2bbbbbbbb', name: 'Other Co' }));
   await ctx.store.put('agencies', Object.assign({}, await ctx.store.get('agencies', 'comp1'), { _id: 'comp2' }));
-  await ctx.store.put('deployments', Object.assign({}, base, { _id: 'loc3cccccccc', companyId: 'comp2', name: 'Agency 2 client' }));
+  await ctx.store.put('deployments', Object.assign({}, base, { _id: 'loc3cccccccc', companyId: 'comp2', name: 'Company 2 client' }));
   const past = new Date(Date.now() - 60e3).toISOString();
   const locs = [['comp1', 'loc1aaaaaaaa'], ['comp1', 'loc2bbbbbbbb'], ['comp2', 'loc3cccccccc']];
   for (let i = 0; i < 60; i++) {

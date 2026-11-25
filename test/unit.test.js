@@ -50,7 +50,7 @@ test('Twilio signature check', () => {
   assert.equal(sec.verifyTwilio('', 'https://x.test/a', params, sig), false);
 });
 
-test('GHL SSO payload round-trip', () => {
+test('CRM SSO payload round-trip', () => {
   const p = sec.encryptGhlSso({ userId: 'u', companyId: 'c' }, 'k');
   assert.deepEqual(sec.decryptGhlSso(p, 'k'), { userId: 'u', companyId: 'c' });
   assert.equal(sec.decryptGhlSso(p, 'other'), null);

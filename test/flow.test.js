@@ -17,8 +17,8 @@ test('full call center lifecycle', async (t) => {
   assert.equal(r.status, 302);
   assert.match(r.location, /^\/app\/setup\?t=/);
   const agency = await ctx.store.get('agencies', 'comp1');
-  assert.equal(agency.name, 'Acme Agency');
-  assert.ok(agency.ghl.accessToken.startsWith('v1:'), 'GHL token encrypted');
+  assert.equal(agency.name, 'Acme Company');
+  assert.ok(agency.ghl.accessToken.startsWith('v1:'), 'CRM token encrypted');
 
   // 2. Owner login
   const t1 = decodeURIComponent(r.location.split('t=')[1]);
@@ -42,7 +42,7 @@ test('full call center lifecycle', async (t) => {
   const stored = JSON.stringify(await ctx.store.get('agencies', 'comp1'));
   assert.ok(!stored.includes('vapi-good') && !stored.includes('sk-good') && !stored.includes('goodtoken'), 'keys encrypted at rest');
 
-  // 4. Sub-accounts + CRM data
+  // 4. Accounts + CRM data
   r = await owner.req('GET', '/api/locations');
   assert.equal(r.json.locations.length, 2);
   r = await owner.req('GET', '/api/locations/loc1aaaaaaaa/crm');
@@ -205,7 +205,7 @@ test('full call center lifecycle', async (t) => {
   assert.equal(Object.keys(vs.numbers).length, 0);
 });
 
-test('HighLevel SSO: sub-account users get the client deck, agency admins the console', async (t) => {
+test('CRM SSO: account users get the client deck, company admins the console', async (t) => {
   const env = await setup();
   t.after(() => env.server.close());
   const c = client(env.base);
@@ -231,7 +231,7 @@ test('HighLevel SSO: sub-account users get the client deck, agency admins the co
   assert.equal(r.status, 403);
 });
 
-test('white-label domain only serves its own agency', async (t) => {
+test('white-label domain only serves its own company', async (t) => {
   const env = await setup();
   t.after(() => env.server.close());
   const c = client(env.base);
@@ -250,7 +250,7 @@ test('white-label domain only serves its own agency', async (t) => {
   const html = r.body;
   assert.match(html, /Acme Voice/);
   assert.match(html, /--brand:#ff0000/);
-  // Another agency's user cannot sign in on this domain.
+  // Another company's user cannot sign in on this domain.
   await env.ctx.store.put('agencies', { _id: 'comp2', installed: true, status: 'active' });
   await env.ctx.store.put('users', { _id: 'u_y', email: 'z@b.com', companyId: 'comp2', kind: 'agency', role: 'owner', passwordHash: await require('../server/security').hashPassword('otherpass12') });
   r = await rawRequest(env.base, 'POST', '/api/auth/login', { host: 'calls.acme.com', 'Content-Type': 'application/json', 'X-ACC': '1' }, JSON.stringify({ email: 'z@b.com', password: 'otherpass12' }));

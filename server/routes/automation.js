@@ -20,7 +20,7 @@ module.exports = function (app, ctx) {
     return s;
   }
 
-  /* ---------- speed-to-lead: HighLevel workflow -> Custom Webhook ---------- */
+  /* ---------- speed-to-lead: CRM workflow -> Custom Webhook ---------- */
   app.post('/hooks/lead/:locationId/:key', h(async (req, res) => {
     if (!ctx.limits.api('lead:' + req.params.locationId)) return res.status(429).json({ error: 'Too many leads' });
     const dep = await store.get('deployments', req.params.locationId);
@@ -42,7 +42,7 @@ module.exports = function (app, ctx) {
     res.json({ leads: leads.map((l) => ({ id: l._id, locationId: l.locationId, name: l.name, phone: l.phone, interest: l.interest, status: l.status, attempts: l.attempts, reason: l.reason || '', createdAt: l.createdAt, nextAt: l.nextAt, lastCallAt: l.lastCallAt || '' })) });
   }));
 
-  // Fire a test lead at a number (the agency's own phone) to hear the outbound agent.
+  // Fire a test lead at a number (the company's own phone) to hear the outbound agent.
   app.post('/api/deployments/:id/test-lead', ...admin, h(async (req, res) => {
     const dep = await store.get('deployments', req.params.id);
     if (!dep || dep.companyId !== req.agency._id) throw httpError(404, 'Not found');

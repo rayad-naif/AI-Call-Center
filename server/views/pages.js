@@ -126,9 +126,9 @@ function docs(req, cfg) {
       '<li>Redirect URL: <code>' + esc(base) + '/oauth/callback</code></li>' +
       '<li>Webhook URL: <code>' + esc(base) + '/webhooks/crm</code> (INSTALL, UNINSTALL)</li>' +
       '<li>Custom page / SSO URL: <code>' + esc(base) + '/embed</code></li>' +
-      '<li>Account app (Target User: Sub-account): redirect <code>' + esc(cfg.apps.standard.redirectUri) + '</code>, scopes <code>' + esc(cfg.apps.standard.scopes) + '</code></li>' +
-      '<li>Company app (Target User: Agency): redirect <code>' + esc(cfg.apps.agency.redirectUri) + '</code>, scopes <code>' + esc(cfg.apps.agency.scopes) + '</code>. Each client account is connected with a Private Integration token from that account.</li></ul>' +
-      '<h2>Support</h2><p>Email <a href="mailto:' + esc(cfg.brand.supportEmail) + '">' + esc(cfg.brand.supportEmail) + '</a>.</p></article>'
+      '<li>Account app (Target User: Account): redirect <code>' + esc(cfg.apps.standard.redirectUri) + '</code>, scopes <code>' + esc(cfg.apps.standard.scopes) + '</code></li>' +
+      '<li>Company app (Target User: Company): redirect <code>' + esc(cfg.apps.agency.redirectUri) + '</code>, scopes <code>' + esc(cfg.apps.agency.scopes) + '</code>. Each client account is connected with a Private Integration token from that account.</li></ul>' +
+      '<h2>Support</h2><p>' + esc(cfg.brand.supportName) + ': <a href="mailto:' + esc(cfg.brand.supportEmail) + '">' + esc(cfg.brand.supportEmail) + '</a></p></article>'
   });
 }
 
@@ -142,7 +142,7 @@ function legal(req, cfg, kind) {
       '<h2>Processors</h2><p>Call audio and AI processing are handled by Twilio, Vapi and OpenAI under the company\'s own accounts and their terms. Data is hosted on our cloud provider and MongoDB Atlas.</p>' +
       '<h2>Retention</h2><p>Call records are deleted automatically after 12 months, activity logs after 180 days. Uninstalling stops all processing; ask us to delete everything at any time.</p>' +
       '<h2>Call recording consent</h2><p>Companies and their clients are responsible for caller disclosures and consent required where they operate.</p>' +
-      '<h2>Contact</h2><p>' + esc(cfg.brand.supportEmail) + '</p>'
+      '<h2>Contact</h2><p>' + esc(cfg.brand.supportName) + ', <a href="mailto:' + esc(cfg.brand.supportEmail) + '">' + esc(cfg.brand.supportEmail) + '</a></p>'
     : '<h1>Terms of Service</h1><p class="muted">Last updated ' + esc(cfg.brand.legalUpdated) + '</p>' +
       '<p>By installing or using ' + n + ' you agree to these terms.</p>' +
       '<h2>License</h2><p>Your purchase grants your company a non-transferable license to use the software for your own and your clients\' businesses while the app is installed.</p>' +
@@ -151,7 +151,7 @@ function legal(req, cfg, kind) {
       '<h2>AI output</h2><p>AI agents can make mistakes. You are responsible for reviewing their configuration and outcomes.</p>' +
       '<h2>Warranty and liability</h2><p>The software is provided "as is". Our total liability is limited to the amount you paid for the license.</p>' +
       '<h2>Termination</h2><p>We may suspend licenses used in breach of these terms.</p>' +
-      '<h2>Contact</h2><p>' + esc(cfg.brand.supportEmail) + '</p>';
+      '<h2>Contact</h2><p>' + esc(cfg.brand.supportName) + ', <a href="mailto:' + esc(cfg.brand.supportEmail) + '">' + esc(cfg.brand.supportEmail) + '</a></p>';
   return page(req, { title: kind === 'privacy' ? 'Privacy' : 'Terms', marketing: true, body: '<article class="prose">' + body + '</article>' });
 }
 

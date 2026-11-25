@@ -1,5 +1,5 @@
 'use strict';
-/* OpenAI with the agency's own key: key validation + structured QA grading. */
+/* OpenAI with the company's own key: key validation + structured QA grading. */
 const { createHttp } = require('./http');
 
 function createOpenAI(cfg, fetchImpl) {

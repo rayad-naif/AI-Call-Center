@@ -1,9 +1,9 @@
 'use strict';
 /* White-label branding and custom portal domains.
 
-   An agency sets a name, logo and colors, and can map a domain such as
-   calls.agency.com (CNAME -> this app's host). Requests on that host load the
-   agency's branding and only accept that agency's logins. */
+   A company sets a name, logo and colors, and can map a domain such as
+   calls.company.com (CNAME -> this app's host). Requests on that host load the
+   company's branding and only accept that company's logins. */
 const dns = require('dns').promises;
 
 const DEFAULT = { name: '', logoUrl: '', primary: '#6d5efc', accent: '#22c55e', hidePoweredBy: false };
@@ -56,7 +56,7 @@ function createBranding(ctx, deps) {
     req.brand = brand;
   }
 
-  // Branding for a signed-in user on the main host (their agency's look).
+  // Branding for a signed-in user on the main host (their company's look).
   async function forCompany(companyId) {
     const agency = companyId && await store.get('agencies', companyId);
     const b = Object.assign({}, DEFAULT, (agency && agency.branding) || {});

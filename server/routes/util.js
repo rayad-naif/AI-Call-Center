@@ -24,7 +24,7 @@ function requireSession(ctx, role, opts) {
   };
 }
 
-// Loads the session's agency and refuses unlicensed/suspended ones.
+// Loads the session's company and refuses unlicensed/suspended ones.
 function withAgency(ctx) {
   return h(async (req, res, next) => {
     req.agency = await ctx.agencySvc.requireActive(req.session.companyId);

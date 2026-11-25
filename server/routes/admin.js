@@ -1,5 +1,5 @@
 'use strict';
-/* Super Admin (you, the app owner): every agency license at a glance. */
+/* Super Admin (you, the app owner): every company license at a glance. */
 const { h, csrf } = require('./util');
 const { safeEqual } = require('../security');
 const views = require('../views/pages');
@@ -44,8 +44,8 @@ module.exports = function (app, ctx) {
 
   /* Setup check: shared settings + each of the two Marketplace apps. */
   const APP_ENV = {
-    standard: { id: 'GHL_CLIENT_ID', secret: 'GHL_CLIENT_SECRET', sso: 'GHL_SSO_KEY', target: 'Sub-account (distribution: Agency and Sub-account)' },
-    agency: { id: 'GHL_AGENCY_CLIENT_ID', secret: 'GHL_AGENCY_CLIENT_SECRET', sso: 'GHL_AGENCY_SSO_KEY', target: 'Agency' }
+    standard: { id: 'CRM_CLIENT_ID', secret: 'CRM_CLIENT_SECRET', sso: 'CRM_SSO_KEY', target: 'Account (distribution: Company and Account)' },
+    agency: { id: 'CRM_COMPANY_CLIENT_ID', secret: 'CRM_COMPANY_CLIENT_SECRET', sso: 'CRM_COMPANY_SSO_KEY', target: 'Company' }
   };
   app.get('/api/admin/setup', guard, h(async (req, res) => {
     const g = cfg.ghl;

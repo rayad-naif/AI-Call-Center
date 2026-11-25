@@ -1,12 +1,12 @@
 'use strict';
 /* Revenue features on top of the call center:
 
-   Speed-to-lead   A HighLevel workflow ("Custom Webhook" action) posts a new
+   Speed-to-lead   A CRM workflow ("Custom Webhook" action) posts a new
                    lead to /hooks/lead/:locationId/:key and the Outbound agent
                    calls them back within seconds, inside calling hours, with
                    retries for no-answer / voicemail, a daily cap, 24h de-dupe
                    and Do-Not-Call respect.
-   SMS follow-up   After each call, a text through the client's HighLevel
+   SMS follow-up   After each call, a text through the client's CRM
                    phone: booking confirmation, missed call, lead nurture,
                    ticket received.
    Live alerts     Keywords said by the caller, low QA scores, negative
@@ -150,7 +150,7 @@ function createAutomation(ctx) {
     if (calledToday.length >= dep.outbound.dailyCap) {
       return store.patch('leads', leadId, { nextAt: new Date(nextOpen(dep.outbound, tz, today.getTime() + 86400e3) || Date.now() + 86400e3).toISOString(), reason: 'Daily call cap reached' });
     }
-    // Respect Do Not Call on the HighLevel contact.
+    // Respect Do Not Call on the CRM contact.
     if (lead.contactId) {
       try {
         const api = await agencySvc.locationApi(agency, dep._id);

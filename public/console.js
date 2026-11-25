@@ -1,4 +1,4 @@
-/* Agency console: overview, BYOK keys, client deployments, branding, team, activity. */
+/* Company console: overview, BYOK keys, client deployments, branding, team, activity. */
 (function () {
   'use strict';
   const { api, h, toast, fmtTime, busy } = window.ACC;
@@ -53,7 +53,8 @@
     const statsBox = h('div.stats', h('div.spinner'));
     body.append(
       h('div.card', h('h2', 'Setup checklist'), h('ol.checklist', steps.map(([t, done, href]) => h('li', { class: done ? 'done' : '' }, h('a', { href }, t))))),
-      h('div.card', h('h2', 'Last 7 days'), statsBox)
+      h('div.card', h('h2', 'Last 7 days'), statsBox),
+      state.agency.support ? h('div.card', h('h2', 'Support'), h('p', state.agency.support.name + ' · ', h('a', { href: 'mailto:' + state.agency.support.email }, state.agency.support.email))) : ''
     );
     const [s, deps] = await Promise.all([api('GET', '/api/live/stats'), api('GET', '/api/deployments')]);
     if (deps.deployments.some((d) => d.status === 'live')) body.querySelectorAll('.checklist li')[1].classList.add('done');

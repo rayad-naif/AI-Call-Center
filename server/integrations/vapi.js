@@ -1,5 +1,5 @@
 'use strict';
-/* Vapi REST with the agency's own private key, plus the per-call Live Call
+/* Vapi REST with the company's own private key, plus the per-call Live Call
    Control endpoint (call.monitor.controlUrl). */
 const { createHttp } = require('./http');
 
@@ -25,7 +25,7 @@ function createVapi(cfg, fetchImpl) {
       importTwilioNumber: (p) => call('POST', '/phone-number', Object.assign({ provider: 'twilio' }, p)),
       updatePhoneNumber: (id, p) => call('PATCH', '/phone-number/' + encodeURIComponent(id), p),
       deletePhoneNumber: (id) => call('DELETE', '/phone-number/' + encodeURIComponent(id)),
-      // BYOK: Vapi bills the LLM to the agency's own OpenAI key.
+      // BYOK: Vapi bills the LLM to the company's own OpenAI key.
       createCredential: (c) => call('POST', '/credential', c),
       listCredentials: () => call('GET', '/credential'),
       getCall: (id) => call('GET', '/call/' + encodeURIComponent(id)),

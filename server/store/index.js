@@ -3,10 +3,10 @@
    production and on a JSON file in development/tests.
 
    Collections
-     agencies     _id = GHL companyId. OAuth tokens, BYOK keys (encrypted), branding.
-     deployments  _id = GHL locationId. One provisioned call center per client.
+     agencies     (company workspaces) _id = CRM companyId. OAuth tokens, BYOK keys (encrypted), branding.
+     deployments  _id = CRM locationId. One provisioned call center per client.
      calls        _id = Vapi call id. Live state, transcript, QA grade, CRM sync.
-     users        portal logins (agency staff + client users).
+     users        portal logins (company staff + client users).
      takeovers    pending human takeovers (short TTL).
      domains      custom portal domain -> companyId.
      events       activity log.

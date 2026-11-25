@@ -1,5 +1,5 @@
 'use strict';
-/* Agency console API: BYOK keys, sub-accounts, deployments, branding, users. */
+/* Company console API: BYOK keys, accounts, deployments, branding, users. */
 const { h, csrf, requireSession, withAgency, httpError } = require('./util');
 const { randomToken, hashPassword } = require('../security');
 const { ROLES } = require('../auth');
@@ -45,6 +45,7 @@ module.exports = function (app, ctx) {
     res.json({
       id: a._id, name: a.name, status: a.status, mode: a.mode === 'account' ? 'account' : 'company', locationId: a.locationId || '',
       edition: agencySvc.edition(req.agency),
+      support: { name: cfg.brand.supportName, email: cfg.brand.supportEmail },
       keys: agencySvc.publicKeys(a),
       setup: { takeoverNumber: (a.setup && a.setup.takeoverNumber) || '', browserCalling: !!(a.setup && a.setup.twimlAppSid), vapiCredential: !!(a.setup && a.setup.vapiCredentialId) },
       branding: Object.assign({}, branding.normalizeBranding({}, a.branding || {}), { domain: (a.branding && a.branding.domain) || '' }),
@@ -86,7 +87,7 @@ module.exports = function (app, ctx) {
     res.json({ keys: agencySvc.publicKeys(Object.assign({}, a, { keys: save, keyStatus: status })) });
   }));
 
-  /* ---------- sub-accounts ---------- */
+  /* ---------- accounts ---------- */
   app.get('/api/locations', ...admin, h(async (req, res) => {
     // Single-account workspace: the only account it manages is itself.
     if (req.agency.mode === 'account') {
@@ -128,7 +129,7 @@ module.exports = function (app, ctx) {
     });
   }));
 
-  /* Sub-account Private Integration token (agency edition; also a fallback for
+  /* Account Private Integration token (company edition; also a fallback for
      accounts where the app is not installed). Checked live before saving. */
   app.get('/api/locations/:id/crm-token', ...admin, h(async (req, res) => {
     res.json({ connected: await agencySvc.hasCrmToken(req.agency, req.params.id), edition: agencySvc.edition(req.agency) });
@@ -145,7 +146,7 @@ module.exports = function (app, ctx) {
     res.json({ connected: false });
   }));
 
-  // Pipelines + calendars of one sub-account, for the deploy wizard.
+  // Pipelines + calendars of one account, for the deploy wizard.
   app.get('/api/locations/:id/crm', ...admin, h(async (req, res) => {
     const id = req.params.id;
     const api = await agencySvc.locationApi(req.agency, id);
@@ -247,7 +248,7 @@ module.exports = function (app, ctx) {
     res.json(await branding.verifyDomain(a));
   }));
 
-  /* ---------- users (agency staff + client logins) ---------- */
+  /* ---------- users (company staff + client logins) ---------- */
   const publicUser = (u) => ({ id: u._id, email: u.email, name: u.name, kind: u.kind, role: u.role, locationIds: u.locationIds || null, disabled: !!u.disabled, lastLoginAt: u.lastLoginAt || '' });
 
   app.get('/api/users', ...admin, h(async (req, res) => {

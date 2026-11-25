@@ -1,7 +1,7 @@
 'use strict';
-/* HighLevel API v2. The marketplace app installs at agency (Company) level;
-   location-scoped calls use a location token minted from the agency token
-   (POST /oauth/locationToken), so the agency never pastes a GHL API key. */
+/* CRM API v2. The marketplace app installs at company (Company) level;
+   location-scoped calls use a location token minted from the company token
+   (POST /oauth/locationToken), so the company never pastes a CRM API key. */
 const crypto = require('crypto');
 const { createHttp, ApiError } = require('./http');
 
@@ -9,7 +9,7 @@ function createGhl(cfg, fetchImpl) {
   const g = cfg.ghl;
   const http = createHttp('CRM', fetchImpl);
 
-  // Which Marketplace app (cfg.apps): 'standard' (sub-account) or 'agency'.
+  // Which Marketplace app (cfg.apps): 'standard' (account app) or 'agency' (internal key of the company app).
   const appOf = (key) => (cfg.apps && cfg.apps[key]) || (cfg.apps && cfg.apps.standard) || { clientId: g.clientId, clientSecret: g.clientSecret, scopes: g.scopes, redirectUri: cfg.redirectUri };
 
   function authorizeUrl(state, appKey) {
@@ -32,10 +32,12 @@ function createGhl(cfg, fetchImpl) {
     });
   };
 
-  /* Returns the token as-is. userType is "Company" for an agency install and
-     "Location" when the app is installed into a single sub-account. */
-  async function exchangeCode(code, appKey) {
-    const t = await tokenRequest({ grant_type: 'authorization_code', code, redirect_uri: appOf(appKey).redirectUri }, appKey);
+  /* Returns the token as-is. userType is "Company" for a company install and
+     "Location" when the app is installed into a single account. */
+  // redirectUri: the callback address the CRM actually sent the user to (old
+  // and new callback paths both work); defaults to the app's configured one.
+  async function exchangeCode(code, appKey, redirectUri) {
+    const t = await tokenRequest({ grant_type: 'authorization_code', code, redirect_uri: redirectUri || appOf(appKey).redirectUri }, appKey);
     if (!t || !t.access_token || !t.companyId || !/^(Company|Location)$/.test(t.userType || '')) {
       throw new ApiError('CRM', 'Unexpected install token (' + ((t && t.userType) || 'unknown') + ').', 400, t);
     }
@@ -51,7 +53,7 @@ function createGhl(cfg, fetchImpl) {
     return hit ? hit.key : null;
   }
 
-  // Location token from an agency token (needs oauth.write).
+  // Location token from a company token (needs oauth.write).
   const locationToken = (agencyToken, companyId, locationId) => http(g.apiBase + '/oauth/locationToken', {
     method: 'POST',
     headers: { Authorization: 'Bearer ' + agencyToken, Version: g.apiVersion, 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
@@ -73,10 +75,10 @@ function createGhl(cfg, fetchImpl) {
     };
     return {
       raw: call,
-      // Agency token
+      // Company token
       getCompany: async (companyId) => { const j = await call('GET', '/companies/' + encodeURIComponent(companyId)); return (j && j.company) || j; },
       searchLocations: async (companyId, skip) => ((await call('GET', '/locations/search', null, { companyId, limit: 100, skip: skip || 0 })) || {}).locations || [],
-      // Sub-accounts where this app is installed (agency token, oauth.readonly).
+      // Accounts where this app is installed (company token, oauth.readonly).
       installedLocations: async (companyId, appId) => {
         const out = [];
         for (let skip = 0; skip < 5000; skip += 100) {
@@ -101,7 +103,7 @@ function createGhl(cfg, fetchImpl) {
       addTags: (id, tags) => call('POST', '/contacts/' + encodeURIComponent(id) + '/tags', { tags }),
       addNote: (id, body) => call('POST', '/contacts/' + encodeURIComponent(id) + '/notes', { body }),
       upsertOpportunity: (o) => call('POST', '/opportunities/upsert', o),
-      // Text through the sub-account's own HighLevel phone (LC Phone / Twilio).
+      // Text through the account's own CRM phone (LC Phone / Twilio).
       sendSms: (contactId, message) => call('POST', '/conversations/messages', { type: 'SMS', contactId, message }),
       setDnd: (id) => call('PUT', '/contacts/' + encodeURIComponent(id), { dnd: true })
     };

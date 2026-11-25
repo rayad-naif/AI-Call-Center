@@ -1,8 +1,8 @@
 'use strict';
-/* White-label guard. Agencies resell this under their own brand, often on top
-   of a rebranded HighLevel, so their clients (sub-account users, client
+/* White-label guard. Companies resell this under their own brand, often on top
+   of a rebranded CRM, so their clients (account users, client
    logins, custom portal domains) must never see the names of the platforms
-   underneath: HighLevel, Vapi, Twilio or OpenAI, or the word "agency". */
+   underneath: the CRM's brand, Vapi, Twilio or OpenAI, or the CRM's own words for companies and accounts. */
 
 const SWAPS = [
   [/\b(Go ?High ?Level|High ?Level|LeadConnector|GHL)\b/gi, 'the CRM'],
@@ -22,7 +22,7 @@ function neutral(text) {
   return s.replace(/\b(the) the\b/gi, '$1');
 }
 
-// True when the viewer is a client of an agency, not the agency itself.
+// True when the viewer is a client of a company, not the company itself.
 function isClientView(req) {
   return !!(req.brandCompanyId || (req.session && req.session.kind === 'client'));
 }

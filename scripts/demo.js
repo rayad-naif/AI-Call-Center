@@ -1,6 +1,6 @@
 'use strict';
-/* Local demo with simulated Twilio / Vapi / HighLevel / OpenAI.
-   No real accounts or credit needed: it installs a demo agency, deploys a
+/* Local demo with simulated Twilio / Vapi / CRM / OpenAI.
+   No real accounts or credit needed: it installs a demo company, deploys a
    client, and plays a scripted live call every 45 seconds so you can try the
    Command Deck (transcript, whisper, takeover buttons, QA grading).
 
@@ -28,7 +28,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function seed() {
   const { store, sec } = ctx;
   await store.put('agencies', {
-    _id: 'comp1', name: 'Acme Growth Agency', installed: true, status: 'active', createdAt: new Date().toISOString(),
+    _id: 'comp1', name: 'Acme Growth Company', installed: true, status: 'active', createdAt: new Date().toISOString(),
     ghl: { accessToken: sec.encrypt('agency-at'), refreshToken: sec.encrypt('agency-rt'), expiresAt: Date.now() + 86e6 },
     keys: { twilioSid: 'ACmain', twilioToken: sec.encrypt('goodtoken'), vapiKey: sec.encrypt('vapi-good'), openaiKey: sec.encrypt('sk-good') },
     keyStatus: { twilio: { ok: true, detail: 'Demo account' }, vapi: { ok: true, detail: 'Connected' }, openai: { ok: true, detail: 'Connected' } },
@@ -79,7 +79,7 @@ async function playCall(n) {
   await seed();
   app.listen(port, () => {
     console.log('\nDemo running (simulated providers, nothing is billed)');
-    console.log('  Agency console: http://localhost:' + port + '/login   demo@example.com / demo-password');
+    console.log('  Company console: http://localhost:' + port + '/login   demo@example.com / demo-password');
     console.log('  Super admin:    http://localhost:' + port + '/admin/login   demo-admin-password\n');
   });
   let n = 0;

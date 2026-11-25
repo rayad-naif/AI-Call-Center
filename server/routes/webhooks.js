@@ -1,6 +1,6 @@
 'use strict';
 /* Inbound webhooks: Vapi (call events + tool calls), Twilio (takeover line,
-   browser outbound) and HighLevel (install / uninstall). */
+   browser outbound) and CRM (install / uninstall). */
 const { h } = require('./util');
 const { safeEqual, verifyTwilio } = require('../security');
 const { twiml, say, dialClient, dialNumber } = require('../integrations/twilio');
@@ -79,7 +79,7 @@ module.exports = function (app, ctx) {
     res.send(twiml(dialNumber(to, { callerId: agency.setup.takeoverNumber })));
   }));
 
-  /* ---------- HighLevel marketplace lifecycle ---------- */
+  /* ---------- CRM marketplace lifecycle ---------- */
   // /webhooks/crm is the address shown everywhere; /webhooks/ghl stays as an alias.
   app.post(['/webhooks/crm', '/webhooks/ghl'], h(async (req, res) => {
     const verified = ctx.ghl.verifyWebhook(req.rawBody || Buffer.from(''), req.headers);
@@ -90,7 +90,7 @@ module.exports = function (app, ctx) {
     // Which of our two apps sent this (events without an appId count as the account app).
     const appKey = b.appId ? ctx.ghl.appKeyForId(b.appId) : 'standard';
     if (!appKey) return res.json({ ignored: true });
-    // Sub-account level events: track which sub-accounts have the app; the agency license is unchanged.
+    // Account level events: track which accounts have the app; the company license is unchanged.
     if (b.locationId && b.installType !== 'Company') {
       if (appKey !== 'standard') return res.json({ ignored: true });
       const ws = await store.get('agencies', 'acct_' + b.locationId);

@@ -1,27 +1,27 @@
 'use strict';
-/* Agency edition: agency-level listing; each client account connects with its
-   own sub-account Private Integration token instead of a minted location token. */
+/* Company edition: company-level listing; each client account connects with its
+   own account Private Integration token instead of a minted location token. */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { setup, client } = require('./helpers');
 const config = require('../server/config');
 
-// app: 'agency' installs through the company app, otherwise the account app.
+// app: 'company' installs through the company app, otherwise the account app.
 async function installed(t, app) {
   const e = await setup();
   t.after(() => e.server.close());
   const c = client(e.base);
-  const r = await c.req('GET', app === 'agency' ? '/oauth/agency/callback?code=abc' : '/oauth/callback?code=abc');
+  const r = await c.req('GET', app === 'agency' ? '/oauth/company/callback?code=abc' : '/oauth/callback?code=abc');
   await c.req('POST', '/api/auth/setup', { t: decodeURIComponent(r.location.split('t=')[1]), email: 'o@acme.com', password: 'longpassword1' });
   return Object.assign(e, { owner: c });
 }
 
-test('one deployment, two apps: the company app asks only for agency-level scopes', () => {
+test('one deployment, two apps: the company app asks only for company-level scopes', () => {
   const cfg = config.load({ GHL_CLIENT_ID: 'a-1', GHL_AGENCY_CLIENT_ID: 'b-2', BASE_URL: 'https://x.test' });
   assert.equal(cfg.apps.agency.scopes, config.AGENCY_SCOPES);
   assert.doesNotMatch(cfg.apps.agency.scopes, /contacts|oauth\.write|conversations/);
   assert.equal(cfg.apps.standard.scopes, config.DEFAULT_SCOPES);
-  assert.equal(cfg.apps.agency.redirectUri, 'https://x.test/oauth/agency/callback');
+  assert.equal(cfg.apps.agency.redirectUri, 'https://x.test/oauth/company/callback');
   assert.equal(cfg.apps.standard.redirectUri, 'https://x.test/oauth/callback');
   assert.equal(cfg.apps.agency.appId, 'b');
   // Either app alone is a valid configuration.
@@ -30,7 +30,7 @@ test('one deployment, two apps: the company app asks only for agency-level scope
   assert.equal(config.validate(config.load(base)).length, 1);
 });
 
-test('agency edition: accounts need a Private Integration token; it is checked, encrypted and used for CRM calls', async (t) => {
+test('company edition: accounts need a Private Integration token; it is checked, encrypted and used for CRM calls', async (t) => {
   const env = await installed(t, 'agency');
   const o = env.owner;
   const loc = 'loc1aaaaaaaa';
@@ -74,7 +74,7 @@ test('agency edition: accounts need a Private Integration token; it is checked, 
   assert.ok(used.length && used.every((x) => x.auth === 'Bearer ' + pit), 'CRM calls use the Private Integration token');
   assert.ok(!env.fakes.state.ghl.auth.some((x) => x.path === '/oauth/locationToken'));
 
-  // Another agency cannot read or use it.
+  // Another company cannot read or use it.
   assert.equal((await env.ctx.agencySvc.hasCrmToken({ _id: 'otheragency' }, loc)), false);
 
   // Disconnect.

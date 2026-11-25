@@ -1,5 +1,5 @@
 'use strict';
-/* In-memory fakes for Twilio, Vapi, HighLevel and OpenAI, served through an
+/* In-memory fakes for Twilio, Vapi, CRM and OpenAI, served through an
    injected fetch so tests exercise the real request code. */
 
 function createFakes() {
@@ -32,7 +32,7 @@ function createFakes() {
       const auth = Buffer.from(((init.headers || {}).Authorization || '').replace('Basic ', ''), 'base64').toString();
       if (!auth.startsWith('ACmain:goodtoken')) return json(401, { message: 'Authenticate', code: 20003 });
       let m;
-      if (method === 'GET' && p === '/2010-04-01/Accounts/ACmain.json') return json(200, { sid: 'ACmain', friendly_name: 'Agency', type: 'Full', status: 'active' });
+      if (method === 'GET' && p === '/2010-04-01/Accounts/ACmain.json') return json(200, { sid: 'ACmain', friendly_name: 'Company', type: 'Full', status: 'active' });
       if (method === 'POST' && p === '/2010-04-01/Accounts.json') { const sid = nid('ACsub'); state.twilio.subaccounts[sid] = body; return json(201, { sid, auth_token: 'subtoken-' + sid }); }
       if ((m = p.match(/^\/2010-04-01\/Accounts\/(\w+)\/AvailablePhoneNumbers\/(\w+)\/Local\.json$/))) return json(200, { available_phone_numbers: [{ phone_number: '+1512555' + String(1000 + id).slice(-4) }] });
       if ((m = p.match(/^\/2010-04-01\/Accounts\/(\w+)\/IncomingPhoneNumbers\.json$/)) && method === 'POST') { const sid = nid('PN'); state.twilio.numbers[sid] = Object.assign({ account: m[1] }, body); return json(201, { sid, phone_number: body.PhoneNumber }); }
@@ -74,7 +74,7 @@ function createFakes() {
       }
     }
 
-    /* ---- HighLevel ---- */
+    /* ---- CRM ---- */
     if (u.host === 'services.leadconnectorhq.com') {
       let m;
       // Private Integration tokens: "pit-bad…" is rejected, "pit-other…" belongs to another account.
@@ -100,7 +100,7 @@ function createFakes() {
       if (p === '/oauth/installedLocations') return json(200, { locations: [{ _id: 'loc1aaaaaaaa', name: 'Bob Plumbing', isInstalled: true }], count: 1 });
       if (p === '/oauth/locationToken' && state.ghl.blockLocationToken.has(body.locationId)) return json(400, { message: 'App not installed for this location' });
       if (p === '/oauth/locationToken') return json(200, { access_token: 'loc-at-' + body.locationId, expires_in: 86399 });
-      if (p === '/companies/comp1') return json(200, { company: { name: 'Acme Agency' } });
+      if (p === '/companies/comp1') return json(200, { company: { name: 'Acme Company' } });
       if (p === '/locations/search') return json(200, { locations: [{ id: 'loc1aaaaaaaa', name: 'Bob Plumbing' }, { id: 'loc2bbbbbbbb', name: 'Other Co' }] });
       if ((m = p.match(/^\/locations\/(\w+)\/customFields$/))) {
         if (method === 'GET') return json(200, { customFields: state.ghl.fields.filter((f) => f.locationId === m[1]) });

@@ -6,9 +6,9 @@ const { createStore } = require('./store');
 const { createSecurity, rateLimiter, safeEqual } = require('./security');
 const { createTwilio } = require('./integrations/twilio');
 const { createVapi } = require('./integrations/vapi');
-const { createGhl } = require('./integrations/ghl');
+const { createGhl } = require('./integrations/crm');
 const { createOpenAI } = require('./integrations/openai');
-const { createAgencyService } = require('./services/agency');
+const { createAgencyService } = require('./services/company');
 const { createProvisioner } = require('./services/provisioner');
 const { createCallService } = require('./services/calls');
 const { createQaService } = require('./services/qa');
@@ -77,7 +77,7 @@ function createApp(cfg, deps) {
        2. the daily Vercel cron (vercel.json);
        3. an optional external pinger (GitHub Actions, cron-job.org) calling
           /api/cron/sweep with the CRON_SECRET, for exact timing overnight. */
-  // One sweep serves every agency and sub-account. It works in batches until
+  // One sweep serves every company and account. It works in batches until
   // the backlog is empty or ~40s have passed (the function limit is 60s), so a
   // single daily cron can clear a whole night of leads across all clients.
   app.locals.sweep = async (source) => {
@@ -101,7 +101,7 @@ function createApp(cfg, deps) {
     });
   }
 
-  // Security headers. Pages must be frameable: HighLevel (and every
+  // Security headers. Pages must be frameable: CRM (and every
   // white-label CRM domain) embeds them as custom pages.
   app.use((req, res, next) => {
     res.set('X-Content-Type-Options', 'nosniff');
@@ -133,7 +133,7 @@ function createApp(cfg, deps) {
 
   require('./routes/webhooks')(app, ctx);
   require('./routes/oauth')(app, ctx);
-  require('./routes/agency')(app, ctx);
+  require('./routes/company')(app, ctx);
   require('./routes/live')(app, ctx);
   require('./routes/automation')(app, ctx);
   require('./routes/api-v1')(app, ctx);

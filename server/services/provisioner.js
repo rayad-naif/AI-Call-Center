@@ -1,17 +1,17 @@
 'use strict';
 /* The "Deploy Call Center to Client X" engine.
 
-   Agency setup (once, reused by every client):
-     vapi_credential   store the agency's OpenAI key in Vapi so the LLM bills to them
+   Company setup (once, reused by every client):
+     vapi_credential   store the company's OpenAI key in Vapi so the LLM bills to them
      browser_calling   Twilio API key + TwiML app + a "takeover line" number
 
-   Client deployment (per GHL location):
-     twilio_subaccount  isolated Twilio subaccount for the client
+   Client deployment (per CRM location):
+     twilio_subaccount  isolated Twilio account for the client
      twilio_number      buy a local number (preferred area code)
      vapi_assistants    Receptionist, Sales and Support assistants
      vapi_squad         Squad with handoff routes between them
      vapi_number        import the number into Vapi, answered by the squad
-     ghl_fields         AI custom fields on the client's sub-account
+     ghl_fields         AI custom fields on the client's account
      ghl_pipeline       outcome -> pipeline stage mapping (validated)
      portal             client command deck URL
 
@@ -71,7 +71,7 @@ function createProvisioner(ctx) {
     }
   }
 
-  /* ---------- agency setup ---------- */
+  /* ---------- company setup ---------- */
   async function ensureAgencySetup(agency, opts) {
     opts = opts || {};
     const k = agencySvc.keys(agency);
@@ -289,7 +289,7 @@ function createProvisioner(ctx) {
     await store.log(agency._id, 'agents.updated', dep.name || locationId, { locationId });
   }
 
-  // Remove everything this app created for a client (number, agents, subaccount).
+  // Remove everything this app created for a client (number, agents, account).
   async function teardown(agency, locationId, opts) {
     opts = opts || {};
     const dep = await store.get('deployments', locationId);
@@ -306,7 +306,7 @@ function createProvisioner(ctx) {
     const t = dep.twilio || {};
     if (opts.releaseNumber !== false && t.numberSid) await attempt('Twilio number', () => tw.releaseNumber(t.accountSid || k.twilioSid, t.numberSid));
     if (opts.closeSubaccount && t.accountSid && t.accountSid !== k.twilioSid) await attempt('Twilio account', () => tw.setSubaccountStatus(t.accountSid, 'closed'));
-    // Keep the subaccount (and the number, if not released) so a redeploy reuses them.
+    // Keep the account (and the number, if not released) so a redeploy reuses them.
     let twilioLeft = {};
     if (opts.releaseNumber === false) twilioLeft = t;
     else if (!opts.closeSubaccount && t.accountSid) twilioLeft = { accountSid: t.accountSid, authToken: t.authToken };

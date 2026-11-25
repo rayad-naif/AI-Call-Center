@@ -22,7 +22,7 @@ function setup(extraEnv) {
     const server = app.listen(0, '127.0.0.1', () => {
       const base = 'http://127.0.0.1:' + server.address().port;
       // BASE_URL must match the real port for Twilio signatures.
-      cfg.baseUrl = base; cfg.baseHost = new URL(base).host; cfg.redirectUri = base + '/oauth/callback'; cfg.apps.standard.redirectUri = base + '/oauth/callback'; cfg.apps.agency.redirectUri = base + '/oauth/agency/callback';
+      cfg.baseUrl = base; cfg.baseHost = new URL(base).host; cfg.redirectUri = base + '/oauth/callback'; cfg.apps.standard.redirectUri = base + '/oauth/callback'; cfg.apps.agency.redirectUri = base + '/oauth/company/callback';
       const close = server.close.bind(server);
       // Close the store too (MongoDB keeps the process alive otherwise).
       server.close = () => { close(); return app.locals.store.close(); };

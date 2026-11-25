@@ -2,7 +2,7 @@
   "name": "ai-call-center",
   "version": "1.0.0",
   "private": true,
-  "description": "BYOK AI Call Center for HighLevel agencies: one-click Twilio + Vapi + GHL provisioning, live command deck (listen, whisper, takeover), AI QA grading and CRM sync, white-label client portal.",
+  "description": "BYOK AI Call Center for CRM companies and their accounts: one-click Twilio + Vapi + CRM provisioning, live command deck (listen, whisper, takeover), AI QA grading and CRM sync, white-label client portal.",
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",

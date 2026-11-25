@@ -1,5 +1,5 @@
 'use strict';
-/* Industry starter templates. Picking one fills the deploy form so an agency
+/* Industry starter templates. Picking one fills the deploy form so a company
    can launch a niche client in minutes and then fine-tune. */
 
 const T = (id, label, a) => ({ id, label, agent: a });

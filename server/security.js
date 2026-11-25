@@ -127,7 +127,7 @@ function rateLimiter(limit, windowMs) {
   };
 }
 
-/* ---------- HighLevel custom-page SSO (CryptoJS AES "Salted__") ---------- */
+/* ---------- CRM custom-page SSO (CryptoJS AES "Salted__") ---------- */
 function decryptGhlSso(payload, key) {
   try {
     const raw = Buffer.from(String(payload || ''), 'base64');

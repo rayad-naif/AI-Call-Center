@@ -1,5 +1,5 @@
 'use strict';
-/* Agency-level helpers: BYOK keys (encrypted at rest), GHL tokens with
+/* Company-level helpers: BYOK keys (encrypted at rest), CRM tokens with
    refresh, and location tokens cached per deployment. */
 const { mask } = require('../security');
 
@@ -39,7 +39,7 @@ function createAgencyService(ctx) {
     return out;
   }
 
-  /* ---- HighLevel tokens ---- */
+  /* ---- CRM tokens ---- */
   async function agencyToken(agency) {
     const t = agency.ghl || {};
     const access = sec.decrypt(t.accessToken);
@@ -50,7 +50,7 @@ function createAgencyService(ctx) {
     try {
       r = await ghl.refresh(refreshToken, agency.mode === 'account' ? 'Location' : 'Company', edition(agency));
     } catch (e) {
-      // HighLevel refresh tokens are single-use. If a parallel request (another
+      // CRM refresh tokens are single-use. If a parallel request (another
       // serverless instance) refreshed first, use the token it saved.
       const fresh = await store.get('agencies', agency._id);
       const ft = (fresh && fresh.ghl) || {};
@@ -75,7 +75,7 @@ function createAgencyService(ctx) {
     return r.access_token;
   }
 
-  // Which Marketplace app this workspace runs on: 'standard' or 'agency'.
+  // Which Marketplace app this workspace runs on: 'standard' (account app) or 'agency' (company app).
   function edition(agency) { return agency && agency.app === 'agency' ? 'agency' : 'standard'; }
 
   async function agencyApi(agency) { return ghl.api(await agencyToken(agency)); }
@@ -83,8 +83,8 @@ function createAgencyService(ctx) {
   // Location token, cached on the deployment (falls back to a per-process cache).
   const memo = new Map();
 
-  /* Sub-account Private Integration token (agency edition, or any account where
-     the app is not installed). Stored encrypted, one per sub-account. */
+  /* Account Private Integration token (company edition, or any account where
+     the app is not installed). Stored encrypted, one per account. */
   async function crmTokenDoc(agency, locationId) {
     const doc = await store.get('crmTokens', locationId);
     return doc && doc.companyId === agency._id && doc.token ? doc : null;
@@ -128,7 +128,7 @@ function createAgencyService(ctx) {
       if (locationId !== agency.locationId) throw Object.assign(new Error('This workspace can only manage its own account.'), { status: 403 });
       return ghl.api(await agencyToken(agency));
     }
-    // A Private Integration token for this sub-account wins over minted tokens.
+    // A Private Integration token for this account wins over minted tokens.
     const pit = await crmTokenDoc(agency, locationId);
     if (pit) {
       const token = sec.decrypt(pit.token);

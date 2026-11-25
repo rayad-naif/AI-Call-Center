@@ -1,4 +1,5 @@
 'use strict';
+const { SUPPORT } = require('../config');
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -22,7 +23,7 @@ function page(req, o) {
     '<main id="main" class="' + esc(o.mainClass || 'container') + '">' + o.body + '</main>' +
     // Footer links point to the vendor's site, so they only appear on the
     // vendor's own marketing pages, never in a client's or white-label view.
-    (!o.marketing || req.brandCompanyId || b.hidePoweredBy ? '' : '<footer class="foot"><a href="/docs">Docs</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></footer>') +
+    (!o.marketing || req.brandCompanyId || b.hidePoweredBy ? '' : '<footer class="foot"><a href="/docs">Docs</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><span>Support: ' + esc(SUPPORT.name) + ' · <a href="mailto:' + esc(SUPPORT.email) + '">' + esc(SUPPORT.email) + '</a></span></footer>') +
     data + '<script src="/static/common.js" defer></script>' + scripts +
     '</body></html>';
 }

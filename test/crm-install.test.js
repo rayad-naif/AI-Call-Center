@@ -1,5 +1,5 @@
 'use strict';
-/* HighLevel OAuth (agency + sub-account installs), SSO variants, token refresh. */
+/* CRM OAuth (company + account installs), SSO variants, token refresh. */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { setup, client, rawRequest } = require('./helpers');
@@ -88,7 +88,7 @@ test('location install webhooks and installed-location check', async (t) => {
   assert.equal((await env.ctx.store.get('agencies', 'comp1')).installed, true);
   await hook({ type: 'UNINSTALL', appId: 'app1', companyId: 'comp1', locationId: 'loc2bbbbbbbb', installType: 'Location' });
   assert.equal((await env.ctx.store.get('locationInstalls', 'loc2bbbbbbbb')).installed, false);
-  assert.equal((await env.ctx.store.get('agencies', 'comp1')).installed, true, 'agency license unaffected');
+  assert.equal((await env.ctx.store.get('agencies', 'comp1')).installed, true, 'company license unaffected');
 
   const r = await env.owner.req('GET', '/api/locations');
   assert.equal(r.json.installCheck, true);
@@ -96,7 +96,7 @@ test('location install webhooks and installed-location check', async (t) => {
   assert.equal(byId.loc1aaaaaaaa.appInstalled, true);
   assert.equal(byId.loc2bbbbbbbb.appInstalled, false);
 
-  // Deploying to a sub-account without the app gives a clear message.
+  // Deploying to an account without the app gives a clear message.
   env.fakes.state.ghl.blockLocationToken.add('loc2bbbbbbbb');
   await env.owner.req('PUT', '/api/agency/keys', { twilioSid: 'ACmain', twilioToken: 'goodtoken', vapiKey: 'vapi-good', openaiKey: 'sk-good' });
   const crm = await env.owner.req('GET', '/api/locations/loc2bbbbbbbb/crm');
@@ -112,11 +112,11 @@ test('SSO accepts payload variants and maps roles', async (t) => {
   let { r } = await sso({ userId: 'u1', companyId: 'comp1', role: 'user', type: 'location', locationId: 'loc1aaaaaaaa', name: 'Pat' });
   assert.equal(r.json.redirect, '/deck');
   ({ r } = await sso({ userId: 'u2', companyId: 'comp1', role: 'user', isAgencyOwner: true }));
-  assert.equal(r.json.redirect, '/app', 'agency owner without type field gets the console');
+  assert.equal(r.json.redirect, '/app', 'company owner without type field gets the console');
   ({ r } = await sso({ userId: 'u3', companyId: 'comp1', role: 'user', type: 'agency' }));
-  assert.equal(r.json.redirect, '/deck', 'agency non-admin gets the deck');
+  assert.equal(r.json.redirect, '/deck', 'company non-admin gets the deck');
   ({ r } = await sso({ userId: 'u4', companyId: 'comp1', type: 'location', activeLocation: 'loc2bbbbbbbb' }));
-  assert.equal(r.status, 404, 'sub-account without a deployment');
+  assert.equal(r.status, 404, 'account without a deployment');
   const c = client(env.base);
   r = await c.req('POST', '/api/auth/sso', { payload: encryptGhlSso({ userId: 'u', companyId: 'comp1' }, 'wrong-key') });
   assert.equal(r.status, 401);
@@ -141,7 +141,7 @@ test('refresh tokens: single-use race and credential check', async (t) => {
   assert.ok(r.json.checks.length >= 5);
   assert.equal(r.json.apps[0].checks.length, 3);
   assert.equal(r.json.apps.length, 2);
-  assert.equal(r.json.apps[1].paste['Redirect URL'], env.base + '/oauth/agency/callback');
+  assert.equal(r.json.apps[1].paste['Redirect URL'], env.base + '/oauth/company/callback');
   assert.equal(r.json.apps[0].paste['Custom page URL (sidebar)'], env.base + '/embed');
   r = await admin.req('POST', '/api/admin/setup/test', {});
   assert.equal(r.json.ok, true, r.json.detail);
@@ -177,7 +177,7 @@ test('sweep runs from traffic (Vercel free plan), once per interval, and from th
   assert.equal(r.status, 401);
 });
 
-test('white-label: clients never see platform names or "agency"', async (t) => {
+test('white-label: clients never see platform names or "company"', async (t) => {
   const { neutral } = require('../server/whitelabel');
   assert.equal(neutral('HighLevel: Contact not found'), 'Contact not found');
   assert.equal(neutral('Vapi: Invalid Key'), 'Invalid Key');
@@ -190,10 +190,10 @@ test('white-label: clients never see platform names or "agency"', async (t) => {
   await env.ctx.store.put('deployments', { _id: 'loc1aaaaaaaa', companyId: 'comp1', status: 'live', name: 'Bob' });
   await env.ctx.store.patch('agencies', 'comp1', { branding: { name: 'Acme Voice', domain: 'calls.acme.com' } });
   await env.ctx.store.put('domains', { _id: 'calls.acme.com', companyId: 'comp1', verified: true });
-  await env.ctx.store.put('calls', { _id: 'c1', companyId: 'comp1', locationId: 'loc1aaaaaaaa', status: 'ended', createdAt: new Date().toISOString(), customer: { number: '+1' }, transcript: [], sync: { state: 'failed', error: 'HighLevel: Contact not found' } });
+  await env.ctx.store.put('calls', { _id: 'c1', companyId: 'comp1', locationId: 'loc1aaaaaaaa', status: 'ended', createdAt: new Date().toISOString(), customer: { number: '+1' }, transcript: [], sync: { state: 'failed', error: 'CRM: Contact not found' } });
   const bad = /high ?level|\bghl\b|leadconnector|vapi|twilio|openai|\bagenc(y|ies)\b/i;
 
-  // Sub-account user via the CRM sidebar.
+  // Account user via the CRM sidebar.
   const sub = client(env.base);
   let r = await sub.req('POST', '/api/auth/sso', { payload: encryptGhlSso({ userId: 'u1', companyId: 'comp1', type: 'location', role: 'admin', activeLocation: 'loc1aaaaaaaa' }, 'sso-key') });
   for (const p of ['/deck', '/report', '/embed?sso=1']) {
@@ -210,7 +210,7 @@ test('white-label: clients never see platform names or "agency"', async (t) => {
     const visible = (js.match(/'[^'\n]*'/g) || []).filter((x) => bad.test(x) && !/\/api\/|REQUEST_USER_DATA/.test(x));
     assert.deepEqual(visible, [], f + ' has user-facing platform names');
   }
-  // Sub-account user whose call center is not set up: neutral wording.
+  // Account user whose call center is not set up: neutral wording.
   r = await client(env.base).req('POST', '/api/auth/sso', { payload: encryptGhlSso({ userId: 'u9', companyId: 'comp1', type: 'location', activeLocation: 'loc9zzzzzzzz' }, 'sso-key') });
   assert.ok(!bad.test(r.json.error), r.json.error);
 

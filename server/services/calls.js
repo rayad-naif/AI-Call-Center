@@ -241,7 +241,7 @@ function createCallService(ctx) {
     return { ok: true };
   }
 
-  /* ---------- Takeover: Vapi transfers the caller to the agency's takeover
+  /* ---------- Takeover: Vapi transfers the caller to the company's takeover
      line; Twilio asks /twilio/voice/takeover what to do, and we ring the
      supervisor's browser (Voice SDK identity) that claimed the takeover. ---------- */
   async function takeover(scope, id, agency, user, identity) {

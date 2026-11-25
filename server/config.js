@@ -15,7 +15,7 @@ const path = require('path');
   });
 })();
 
-// Every scope the app uses. Install fails loudly in GHL if the app is missing one.
+// Every scope the app uses. Install fails loudly in CRM if the app is missing one.
 const DEFAULT_SCOPES = [
   'companies.readonly',
   'locations.readonly',
@@ -36,9 +36,9 @@ const DEFAULT_SCOPES = [
 ].join(' ');
 
 /* The same deployment serves two Marketplace apps:
-     standard  Target User Sub-account (agencies can bulk-install it for their
-               sub-accounts). Full scopes; location tokens are minted.
-     agency    Target User Agency. HighLevel only offers agency-level scopes
+     standard  Target User Account (companies can bulk-install it for their
+               accounts). Full scopes; location tokens are minted.
+     agency     (internal key) the company app, Target User Company. The CRM only offers company-level scopes
                there (no contacts, calendars, conversations or oauth.write), so
                each client account is connected with its own Private
                Integration token instead of a minted location token. */
@@ -47,6 +47,8 @@ const AGENCY_SCOPES = [
   'locations.readonly',
   'users.readonly'
 ].join(' ');
+
+const SUPPORT = { name: 'IR. Solutions', email: 'idylle_radieuse@outlook.com' };
 
 function dbFromUri(uri) {
   const m = String(uri || '').match(/^mongodb(?:\+srv)?:\/\/[^/]+\/([^/?]+)/);
@@ -77,17 +79,17 @@ function load(env) {
     // Separate key for customer API keys at rest (falls back to SESSION_SECRET).
     encryptionKey: env.ENCRYPTION_KEY || env.SESSION_SECRET || '',
     ghl: {
-      clientId: env.GHL_CLIENT_ID || '',
-      clientSecret: env.GHL_CLIENT_SECRET || '',
-      scopes: env.GHL_SCOPES || DEFAULT_SCOPES,
-      authUrl: env.GHL_AUTH_URL || 'https://marketplace.gohighlevel.com/oauth/chooselocation',
-      apiBase: (env.GHL_API_BASE || 'https://services.leadconnectorhq.com').replace(/\/+$/, ''),
-      apiVersion: env.GHL_API_VERSION || '2021-07-28',
-      webhookEd25519Key: env.GHL_WEBHOOK_ED25519_KEY || '',
-      webhookRsaKey: env.GHL_WEBHOOK_RSA_KEY || '',
-      ssoKey: env.GHL_SSO_KEY || '',
+      clientId: (env.CRM_CLIENT_ID || env.GHL_CLIENT_ID) || '',
+      clientSecret: (env.CRM_CLIENT_SECRET || env.GHL_CLIENT_SECRET) || '',
+      scopes: (env.CRM_SCOPES || env.GHL_SCOPES) || DEFAULT_SCOPES,
+      authUrl: (env.CRM_AUTH_URL || env.GHL_AUTH_URL) || 'https://marketplace.gohighlevel.com/oauth/chooselocation',
+      apiBase: ((env.CRM_API_BASE || env.GHL_API_BASE) || 'https://services.leadconnectorhq.com').replace(/\/+$/, ''),
+      apiVersion: (env.CRM_API_VERSION || env.GHL_API_VERSION) || '2021-07-28',
+      webhookEd25519Key: (env.CRM_WEBHOOK_ED25519_KEY || env.GHL_WEBHOOK_ED25519_KEY) || '',
+      webhookRsaKey: (env.CRM_WEBHOOK_RSA_KEY || env.GHL_WEBHOOK_RSA_KEY) || '',
+      ssoKey: (env.CRM_SSO_KEY || env.GHL_SSO_KEY) || '',
       // Marketplace app id: the part of the client id before the first "-" unless set.
-      appId: env.GHL_APP_ID || String(env.GHL_CLIENT_ID || '').split('-')[0]
+      appId: (env.CRM_APP_ID || env.GHL_APP_ID) || String((env.CRM_CLIENT_ID || env.GHL_CLIENT_ID) || '').split('-')[0]
     },
     twilio: { apiBase: (env.TWILIO_API_BASE || 'https://api.twilio.com').replace(/\/+$/, '') },
     vapi: { apiBase: (env.VAPI_API_BASE || 'https://api.vapi.ai').replace(/\/+$/, '') },
@@ -96,7 +98,7 @@ function load(env) {
       graderModel: env.GRADER_MODEL || 'gpt-4o-mini',
       agentModel: env.AGENT_MODEL || 'gpt-4o'
     },
-    // Optional: lets agencies map custom portal domains automatically.
+    // Optional: lets companies map custom portal domains automatically.
     vercel: {
       token: env.VERCEL_API_TOKEN || '',
       projectId: env.VERCEL_PROJECT_ID || '',
@@ -110,24 +112,27 @@ function load(env) {
     // Both Marketplace apps, keyed by edition. cfg.ghl above is the standard app.
     apps: {
       standard: {
-        key: 'standard', label: 'Account app (Target User: Sub-account)',
-        clientId: env.GHL_CLIENT_ID || '', clientSecret: env.GHL_CLIENT_SECRET || '', ssoKey: env.GHL_SSO_KEY || '',
-        appId: env.GHL_APP_ID || String(env.GHL_CLIENT_ID || '').split('-')[0],
-        scopes: env.GHL_SCOPES || DEFAULT_SCOPES,
+        key: 'standard', label: 'Account app (Target User: Account)',
+        clientId: (env.CRM_CLIENT_ID || env.GHL_CLIENT_ID) || '', clientSecret: (env.CRM_CLIENT_SECRET || env.GHL_CLIENT_SECRET) || '', ssoKey: (env.CRM_SSO_KEY || env.GHL_SSO_KEY) || '',
+        appId: (env.CRM_APP_ID || env.GHL_APP_ID) || String((env.CRM_CLIENT_ID || env.GHL_CLIENT_ID) || '').split('-')[0],
+        scopes: (env.CRM_SCOPES || env.GHL_SCOPES) || DEFAULT_SCOPES,
         redirectUri: baseUrl + '/oauth/callback', installPath: '/install'
       },
       agency: {
-        key: 'agency', label: 'Company app (Target User: Agency)',
-        clientId: env.GHL_AGENCY_CLIENT_ID || '', clientSecret: env.GHL_AGENCY_CLIENT_SECRET || '', ssoKey: env.GHL_AGENCY_SSO_KEY || '',
-        appId: env.GHL_AGENCY_APP_ID || String(env.GHL_AGENCY_CLIENT_ID || '').split('-')[0],
-        scopes: env.GHL_AGENCY_SCOPES || AGENCY_SCOPES,
-        redirectUri: baseUrl + '/oauth/agency/callback', installPath: '/install/agency'
+        key: 'agency', label: 'Company app (Target User: Company)',
+        clientId: (env.CRM_COMPANY_CLIENT_ID || env.GHL_AGENCY_CLIENT_ID) || '', clientSecret: (env.CRM_COMPANY_CLIENT_SECRET || env.GHL_AGENCY_CLIENT_SECRET) || '', ssoKey: (env.CRM_COMPANY_SSO_KEY || env.GHL_AGENCY_SSO_KEY) || '',
+        appId: (env.CRM_COMPANY_APP_ID || env.GHL_AGENCY_APP_ID) || String((env.CRM_COMPANY_CLIENT_ID || env.GHL_AGENCY_CLIENT_ID) || '').split('-')[0],
+        scopes: (env.CRM_COMPANY_SCOPES || env.GHL_AGENCY_SCOPES) || AGENCY_SCOPES,
+        redirectUri: baseUrl + '/oauth/company/callback', installPath: '/install/company'
       }
     },
     brand: {
       name: env.BRAND_NAME || 'AI Call Center',
-      supportEmail: env.SUPPORT_EMAIL || 'support@example.com',
-      legalName: env.LEGAL_NAME || env.BRAND_NAME || 'AI Call Center',
+      // Vendor support details are fixed (shown on the vendor's own pages and
+      // in company consoles, never to a company's clients).
+      supportName: SUPPORT.name,
+      supportEmail: SUPPORT.email,
+      legalName: SUPPORT.name,
       legalUpdated: env.LEGAL_UPDATED || 'November 16, 2026',
       marketplaceUrl: env.MARKETPLACE_URL || ''
     }
@@ -141,8 +146,8 @@ function validate(cfg) {
   if (!cfg.adminPassword || cfg.adminPassword.length < 10) problems.push('ADMIN_PASSWORD must be at least 10 characters');
   if (cfg.serverless && !cfg.mongoUri) problems.push('AI_CALL_CENTER_PLUS_MONGODB_URI (or MONGODB_URI) is required on Vercel (its filesystem is not persistent)');
   const ok = (a) => a.clientId && a.clientSecret;
-  if (!ok(cfg.apps.standard) && !ok(cfg.apps.agency)) problems.push('Set GHL_CLIENT_ID + GHL_CLIENT_SECRET (account app) and/or GHL_AGENCY_CLIENT_ID + GHL_AGENCY_CLIENT_SECRET (company app)');
+  if (!ok(cfg.apps.standard) && !ok(cfg.apps.agency)) problems.push('Set CRM_CLIENT_ID + CRM_CLIENT_SECRET (account app) and/or CRM_COMPANY_CLIENT_ID + CRM_COMPANY_CLIENT_SECRET (company app)');
   return problems;
 }
 
-module.exports = { load, validate, DEFAULT_SCOPES, AGENCY_SCOPES };
+module.exports = { SUPPORT, load, validate, DEFAULT_SCOPES, AGENCY_SCOPES };

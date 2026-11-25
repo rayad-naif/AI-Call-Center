@@ -5,7 +5,7 @@ const views = require('../views/pages');
 module.exports = function (app, ctx) {
   const { cfg, branding } = ctx;
 
-  // Signed-in pages on the main host use the agency's own branding.
+  // Signed-in pages on the main host use the company's own branding.
   async function brandFor(req) {
     if (!req.brandCompanyId && req.session) req.brand = await branding.forCompany(req.session.companyId);
   }

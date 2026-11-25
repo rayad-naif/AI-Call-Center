@@ -1,5 +1,5 @@
 'use strict';
-/* Twilio REST (2010-04-01) with the agency's own Account SID + Auth Token.
+/* Twilio REST (2010-04-01) with the company's own Account SID + Auth Token.
    Form-encoded requests, Basic auth, no SDK. */
 const { createHttp } = require('./http');
 
@@ -30,7 +30,7 @@ function createTwilio(cfg, fetchImpl) {
 
       createSubaccount: (friendlyName) => call('POST', '/Accounts.json', { FriendlyName: friendlyName.slice(0, 64) }),
       getSubaccount: (sid) => call('GET', acct(sid) + '.json'),
-      // Close (permanently) or suspend a subaccount.
+      // Close (permanently) or suspend an account.
       setSubaccountStatus: (sid, status) => call('POST', acct(sid) + '.json', { Status: status }),
 
       async searchLocalNumber(onAccount, { country, areaCode, contains }) {
