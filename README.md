@@ -171,10 +171,13 @@ The app is an account app that a company can install for its accounts. Both ways
 ## REST API and webhooks (connect your other apps)
 
 - **Base URL:** `${BASE_URL}/api/v1`. The machine-readable spec is at `${BASE_URL}/api/v1/openapi.json` (OpenAPI 3).
-- **Companies connect their own apps too:** the company console (and each single-account workspace) has an **API** tab with Keys, Webhooks and Reference.
-  - Keys and webhooks made there are always limited to that company's own accounts, calls and leads.
-  - Those keys can read data and send leads, but can never change licenses.
-  - If the company has a verified custom domain, the reference shows that domain as its API base URL, so the API is white-labeled too.
+- **Every user has their own API access.** The company console's **API** tab and the **API** page at `/developer` (linked from the deck) let each signed-in person create their own keys and webhooks.
+  - **Access matches the person:** company owners and staff cover the whole company; client logins cover only their accounts.
+  - **Roles:** viewers get read-only keys; managers and up can also send leads. Nobody's keys can change licenses.
+  - **Checked on every request:** a key always has its owner's current access. Lower the owner's role and writes stop; disable or delete them and their keys and webhooks stop. Pausing or suspending the company stops all of its keys.
+  - **Who sees what:** company owners and admins see everyone's keys and webhooks, with the owner shown, and can revoke any of them. Everyone else sees only their own.
+  - **Webhooks limited to some accounts** only receive those accounts' events.
+  - **White-label:** if the company has a verified custom domain, the reference shows it as the API base URL.
 - **Auth:** `Authorization: Bearer acc_…`. Create one key per app in **Super Admin → API**:
   - a **read** key reads data; a **write** key can also send leads and change licenses;
   - a key can be limited to one company;

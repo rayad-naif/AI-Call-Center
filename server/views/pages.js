@@ -49,7 +49,7 @@ const consolePage = (req) => page(req, {
 
 const deck = (req, opts) => page(req, {
   title: 'Command Deck', mainClass: 'deck-shell', bodyClass: 'deck',
-  nav: (opts.agency ? '<a href="/app">Company console</a>' : '') + '<a href="/report' + (opts.location ? '?location=' + encodeURIComponent(opts.location) : '') + '" id="report-link">Report</a><span id="voice-status" class="pill" hidden></span><button class="link" data-logout>Sign out</button>',
+  nav: (opts.agency ? '<a href="/app">Company console</a>' : '') + '<a href="/report' + (opts.location ? '?location=' + encodeURIComponent(opts.location) : '') + '" id="report-link">Report</a><a href="/developer">API</a><span id="voice-status" class="pill" hidden></span><button class="link" data-logout>Sign out</button>',
   body: '<div id="deck"><div class="spinner"></div></div>',
   footer: false,
   data: { voiceSdk: TWILIO_SDK, voiceGlobal: 'Twilio', location: opts.location || '' },
@@ -62,6 +62,14 @@ const report = (req, opts) => page(req, {
   body: '<div id="report"><div class="spinner"></div></div>',
   data: { location: opts.location, days: opts.days },
   scripts: ['/static/report.js']
+});
+
+// Personal API access for every signed-in user (keys, webhooks, reference).
+const developer = (req, opts) => page(req, {
+  title: 'API access', mainClass: 'shell',
+  nav: (opts.agency ? '<a href="/app">Company console</a>' : '') + '<a href="/deck">Command Deck</a><button class="link" data-logout>Sign out</button>',
+  body: '<div id="developer"><div class="spinner"></div></div>',
+  scripts: ['/static/api-ui.js', '/static/developer.js']
 });
 
 const adminLogin = (req) => page(req, {
@@ -155,4 +163,4 @@ function legal(req, cfg, kind) {
   return page(req, { title: kind === 'privacy' ? 'Privacy' : 'Terms', marketing: true, body: '<article class="prose">' + body + '</article>' });
 }
 
-module.exports = { message, login, setup, embed, consolePage, deck, report, adminLogin, admin, landing, docs, legal, TWILIO_SDK };
+module.exports = { message, login, setup, embed, consolePage, deck, report, developer, adminLogin, admin, landing, docs, legal, TWILIO_SDK };

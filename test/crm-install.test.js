@@ -196,7 +196,7 @@ test('white-label: clients never see platform names or "company"', async (t) => 
   // Account user via the CRM sidebar.
   const sub = client(env.base);
   let r = await sub.req('POST', '/api/auth/sso', { payload: encryptGhlSso({ userId: 'u1', companyId: 'comp1', type: 'location', role: 'admin', activeLocation: 'loc1aaaaaaaa' }, 'sso-key') });
-  for (const p of ['/deck', '/report', '/embed?sso=1']) {
+  for (const p of ['/deck', '/report', '/developer', '/embed?sso=1']) {
     r = await sub.req('GET', p);
     assert.equal(r.status, 200, p);
     assert.ok(!bad.test(r.text.replace(/<script[\s\S]*?<\/script>/g, '')), p + ' leaks a platform name: ' + (r.text.match(bad) || [])[0]);
@@ -205,7 +205,7 @@ test('white-label: clients never see platform names or "company"', async (t) => 
   assert.equal(r.location, '/deck');
   r = await sub.req('GET', '/api/live/calls/c1');
   assert.equal(r.json.sync.error, 'Contact not found');
-  for (const f of ['deck.js', 'report.js', 'audio.js', 'common.js', 'embed.js']) {
+  for (const f of ['deck.js', 'report.js', 'audio.js', 'common.js', 'embed.js', 'api-ui.js', 'developer.js']) {
     const js = await (await fetch(env.base + '/static/' + f)).text();
     const visible = (js.match(/'[^'\n]*'/g) || []).filter((x) => bad.test(x) && !/\/api\/|REQUEST_USER_DATA/.test(x));
     assert.deepEqual(visible, [], f + ' has user-facing platform names');

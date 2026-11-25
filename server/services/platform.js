@@ -1,8 +1,10 @@
 'use strict';
 /* Platform-wide read model shared by the REST API (/api/v1) and the Super
    Admin portal. Everything here returns public shapes only: no secrets, no
-   tokens, no monitor URLs. `scope.companyId` (set for company-restricted API
-   keys) limits every query to one company. */
+   tokens, no monitor URLs. The scope limits every query:
+     scope.companyId    one company (company-restricted and personal keys)
+     scope.locationIds  only these accounts (keys of users limited to some
+                        accounts, e.g. a client login) */
 
 const ACTIVE = ['queued', 'ringing', 'in-progress', 'forwarding'];
 const MAX = 200;
@@ -106,14 +108,19 @@ function createPlatform(ctx) {
   const event = (e) => ({ at: e.at, companyId: e.companyId, type: e.type, detail: e.detail, accountId: e.locationId || null, callId: e.callId || null });
 
   /* ---------- scoping ---------- */
-  function guardCompany(scope, companyId) {
-    if (scope.companyId && companyId && scope.companyId !== companyId) throw Object.assign(new Error('This API key is limited to another company'), { status: 403 });
+  const denied = (msg) => Object.assign(new Error(msg), { status: 403 });
+  function guardCompany(scope, companyId, locationId) {
+    if (scope.companyId && companyId && scope.companyId !== companyId) throw denied('This API key is limited to another company');
+    if (scope.locationIds && locationId !== undefined && !scope.locationIds.includes(locationId)) throw denied('This API key does not have access to that account');
   }
   function baseFilter(scope, q) {
     const f = {};
     const companyId = scope.companyId || q.companyId;
     if (companyId) f.companyId = String(companyId);
-    if (q.accountId) f.locationId = String(q.accountId);
+    if (q.accountId) {
+      if (scope.locationIds && !scope.locationIds.includes(String(q.accountId))) throw denied('This API key does not have access to that account');
+      f.locationId = String(q.accountId);
+    } else if (scope.locationIds) f.locationId = { $in: scope.locationIds };
     return f;
   }
   function page(docs, limit, field) {
@@ -133,7 +140,8 @@ function createPlatform(ctx) {
     if (q.type === 'company') docs = docs.filter((a) => a.mode !== 'account');
     if (q.installed !== undefined) docs = docs.filter((a) => !!a.installed === (q.installed === true || q.installed === 'true'));
     if (q.q) { const t = String(q.q).toLowerCase(); docs = docs.filter((a) => (a.name || '').toLowerCase().includes(t) || a._id.toLowerCase().includes(t) || ((a.branding && a.branding.domain) || '').includes(t)); }
-    const deps = await store.find('deployments', scope.companyId ? { companyId: scope.companyId } : {});
+    let deps = await store.find('deployments', scope.companyId ? { companyId: scope.companyId } : {});
+    if (scope.locationIds) deps = deps.filter((d) => scope.locationIds.includes(d._id));
     const counts = {};
     deps.forEach((d) => { const c = counts[d.companyId] = counts[d.companyId] || { total: 0, live: 0, failed: 0 }; if (d.status !== 'removed') c.total++; if (d.status === 'live') c.live++; if (d.status === 'failed') c.failed++; });
     return docs.map((a) => company(a, { accounts: counts[a._id] || { total: 0, live: 0, failed: 0 } }));
@@ -143,11 +151,13 @@ function createPlatform(ctx) {
     guardCompany(scope, id);
     const a = await store.get('agencies', id);
     if (!a) throw notFound('Company');
-    const [deps, users, crmTokens] = await Promise.all([
+    let [deps, users, crmTokens] = await Promise.all([
       store.find('deployments', { companyId: id }, { sort: { createdAt: -1 } }),
       store.find('users', { companyId: id }),
       store.find('crmTokens', { companyId: id })
     ]);
+    // Keys limited to some accounts see only those accounts and no user list.
+    if (scope.locationIds) { deps = deps.filter((d) => scope.locationIds.includes(d._id)); users = []; }
     const connected = new Set(crmTokens.filter((t) => t.token).map((t) => t._id));
     return company(a, {
       accounts: deps.map((d) => Object.assign(account(d), { crmConnected: connected.has(d._id) || undefined })),
@@ -174,7 +184,7 @@ function createPlatform(ctx) {
   async function getAccount(scope, id) {
     const d = await store.get('deployments', id);
     if (!d) throw notFound('Account');
-    guardCompany(scope, d.companyId);
+    guardCompany(scope, d.companyId, d._id);
     return account(d);
   }
 
@@ -203,7 +213,7 @@ function createPlatform(ctx) {
   async function getCall(scope, id) {
     const c = await store.get('calls', id);
     if (!c) throw notFound('Call');
-    guardCompany(scope, c.companyId);
+    guardCompany(scope, c.companyId, c.locationId);
     return call(c, true);
   }
 
@@ -222,14 +232,14 @@ function createPlatform(ctx) {
   async function getLead(scope, id) {
     const l = await store.get('leads', id);
     if (!l) throw notFound('Lead');
-    guardCompany(scope, l.companyId);
+    guardCompany(scope, l.companyId, l.locationId);
     return lead(l);
   }
   async function createLead(scope, body) {
     const accountId = String((body && body.accountId) || '');
     const d = await store.get('deployments', accountId);
     if (!d) throw notFound('Account');
-    guardCompany(scope, d.companyId);
+    guardCompany(scope, d.companyId, d._id);
     if (d.status !== 'live') throw Object.assign(new Error('This account is not live'), { status: 409 });
     const r = await ctx.automation.receiveLead(d, { phone: body.phone, first_name: body.name, contact_id: body.crmContactId, customData: { interest: body.interest } });
     if (r.error) throw Object.assign(new Error(r.error), { status: r.status });
@@ -243,7 +253,10 @@ function createPlatform(ctx) {
     const f = {};
     if (scope.companyId || q.companyId) f.companyId = scope.companyId || String(q.companyId);
     if (q.type) f.type = String(q.type);
-    if (q.accountId) f.locationId = String(q.accountId);
+    if (q.accountId) {
+      if (scope.locationIds && !scope.locationIds.includes(String(q.accountId))) throw denied('This API key does not have access to that account');
+      f.locationId = String(q.accountId);
+    } else if (scope.locationIds) f.locationId = { $in: scope.locationIds };
     const limit = clampLimit(q.limit);
     let docs = await store.events(f, 2000);
     if (iso(q.since)) docs = docs.filter((e) => e.at >= iso(q.since));

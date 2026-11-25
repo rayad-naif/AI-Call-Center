@@ -30,6 +30,13 @@ module.exports = function (app, ctx) {
     res.type('html').send(views.consolePage(req));
   }));
 
+  app.get('/developer', h(async (req, res) => {
+    const s = req.session;
+    if (!s) return res.redirect('/login');
+    await brandFor(req);
+    res.type('html').send(views.developer(req, { agency: s.kind === 'agency' && ctx.auth.can(s, 'admin') }));
+  }));
+
   app.get('/deck', h(async (req, res) => {
     const s = req.session;
     if (!s) return res.redirect('/login?deck=1');

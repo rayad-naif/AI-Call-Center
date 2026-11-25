@@ -183,51 +183,119 @@ test('outgoing webhooks: signed deliveries, filters, retries, test ping', async 
   assert.equal((fakes.state.hooks || []).length, before, 'paused hooks get nothing');
 });
 
-test('company console: own API keys and webhooks, limited to that company, no license changes', async (t) => {
+test('personal API access: every user has their own keys and webhooks, limited to what they can see', async (t) => {
   const env = await platform(t);
   const { owner, admin, base, ctx } = env;
+  // A second account in the same company, and three more people.
+  const dep = await ctx.store.get('deployments', 'loc1aaaaaaaa');
+  await ctx.store.put('deployments', Object.assign({}, dep, { _id: 'loc2bbbbbbbb', name: 'Other Co' }));
+  await ctx.store.put('calls', { _id: 'c_loc2', companyId: 'comp1', locationId: 'loc2bbbbbbbb', status: 'ended', createdAt: new Date().toISOString(), customer: { number: '+1' }, transcript: [] });
+  await ctx.store.put('calls', { _id: 'c_loc1', companyId: 'comp1', locationId: 'loc1aaaaaaaa', status: 'ended', createdAt: new Date().toISOString(), customer: { number: '+2' }, transcript: [] });
+  await owner.req('POST', '/api/users', { email: 'bob@plumbing.com', kind: 'client', role: 'manager', locationIds: ['loc1aaaaaaaa'], password: 'bobpassword1' });
+  await owner.req('POST', '/api/users', { email: 'vic@plumbing.com', kind: 'client', role: 'viewer', locationIds: ['loc1aaaaaaaa'], password: 'vicpassword1' });
+  await owner.req('POST', '/api/users', { email: 'sam@acme.com', kind: 'agency', role: 'manager', password: 'sampassword1' });
+  const login = async (email, password) => { const c = client(base); await c.req('POST', '/api/auth/login', { email, password }); return c; };
+  const bob = await login('bob@plumbing.com', 'bobpassword1');
+  const vic = await login('vic@plumbing.com', 'vicpassword1');
+  const sam = await login('sam@acme.com', 'sampassword1');
 
-  // A client user (not a company admin) cannot manage keys.
-  let r = await owner.req('POST', '/api/users', { email: 'bob@plumbing.com', kind: 'client', role: 'manager', locationIds: ['loc1aaaaaaaa'], password: 'bobpassword1' });
+  // Bob (client manager, one account): his key only sees that account.
+  let r = await bob.req('POST', '/api/company/api-keys', { name: 'Bob sheet', write: true, companyId: 'comp2' });
+  assert.equal(r.status, 200, r.text);
+  assert.deepEqual(r.json.apiKey.accountIds, ['loc1aaaaaaaa']);
+  assert.equal(r.json.apiKey.companyId, 'comp1');
+  const bk = bearer(base, r.json.key);
+  r = await bk('GET', '/api/v1/calls');
+  assert.deepEqual(r.json.data.map((c) => c.accountId).sort(), ['loc1aaaaaaaa']);
+  assert.equal((await bk('GET', '/api/v1/calls/c_loc2')).status, 403);
+  assert.equal((await bk('GET', '/api/v1/calls?accountId=loc2bbbbbbbb')).status, 403);
+  assert.equal((await bk('GET', '/api/v1/accounts/loc2bbbbbbbb')).status, 403);
+  assert.deepEqual((await bk('GET', '/api/v1/accounts')).json.data.map((a) => a.id), ['loc1aaaaaaaa']);
+  r = await bk('GET', '/api/v1/companies/comp1');
+  assert.deepEqual(r.json.accounts.map((a) => a.id), ['loc1aaaaaaaa']);
+  assert.deepEqual(r.json.users, [], 'no user list for account-limited keys');
+  assert.equal((await bk('POST', '/api/v1/leads', { accountId: 'loc2bbbbbbbb', phone: '+15125550101' })).status, 403);
+  assert.equal((await bk('POST', '/api/v1/leads', { accountId: 'loc1aaaaaaaa', phone: '+15125550102' })).status, 201);
+  assert.equal((await bk('PATCH', '/api/v1/companies/comp1', { status: 'active' })).status, 403, 'never licenses');
+
+  // Vic (viewer): read-only keys only.
+  assert.equal((await vic.req('POST', '/api/company/api-keys', { name: 'x', write: true })).status, 403);
+  r = await vic.req('POST', '/api/company/api-keys', { name: 'Vic read' });
+  const vk = bearer(base, r.json.key);
+  assert.deepEqual((await vk('GET', '/api/v1/health')).json.key.scopes, ['read']);
+  r = await vic.req('GET', '/api/company/api-reference');
+  assert.ok(!r.json.endpoints.some((e) => e.scope === 'write'), 'viewers do not see write endpoints');
+
+  // Sam (company staff, manager): whole company, but only his own keys in the list.
+  r = await sam.req('POST', '/api/company/api-keys', { name: 'Sam BI', write: true });
+  const sk = bearer(base, r.json.key);
+  assert.deepEqual((await sk('GET', '/api/v1/calls')).json.data.map((c) => c.accountId).sort().filter((v, i, a) => a.indexOf(v) === i), ['loc1aaaaaaaa', 'loc2bbbbbbbb']);
+  assert.deepEqual((await sam.req('GET', '/api/company/api-keys')).json.data.map((k) => k.name), ['Sam BI']);
+  assert.deepEqual((await bob.req('GET', '/api/company/api-keys')).json.data.map((k) => k.name), ['Bob sheet']);
+  const bobPrefix = (await bob.req('GET', '/api/company/api-keys')).json.data[0].id;
+  assert.equal((await sam.req('DELETE', '/api/company/api-keys/' + bobPrefix)).status, 404, 'not his key');
+
+  // Owner (company admin) sees everyone's keys with their owner, and can revoke any.
+  r = await owner.req('GET', '/api/company/api-keys');
+  assert.deepEqual(r.json.data.map((k) => k.owner.email).sort(), ['bob@plumbing.com', 'sam@acme.com', 'vic@plumbing.com']);
+  await admin.req('POST', '/api/admin/api-keys', { name: 'Platform BI' });
+  assert.ok(!(await owner.req('GET', '/api/company/api-keys')).json.data.some((k) => k.name === 'Platform BI'), 'platform keys stay private');
+
+  // Access follows the person: role drop removes writes, disabling stops the key.
+  const users = (await owner.req('GET', '/api/users')).json.users;
+  const bobId = users.find((u) => u.email === 'bob@plumbing.com').id;
+  await owner.req('PATCH', '/api/users/' + bobId, { role: 'viewer' });
+  assert.deepEqual((await bk('GET', '/api/v1/health')).json.key.scopes, ['read']);
+  assert.equal((await bk('POST', '/api/v1/leads', { accountId: 'loc1aaaaaaaa', phone: '+15125550103' })).status, 403);
+  await owner.req('PATCH', '/api/users/' + bobId, { disabled: true });
+  assert.equal((await bk('GET', '/api/v1/health')).status, 401);
+  // Suspending the company stops all company and personal keys.
+  await ctx.store.patch('agencies', 'comp1', { status: 'suspended' });
+  assert.equal((await sk('GET', '/api/v1/health')).status, 401);
+  await ctx.store.patch('agencies', 'comp1', { status: 'active' });
+  assert.equal((await sk('GET', '/api/v1/health')).status, 200);
+  await owner.req('DELETE', '/api/company/api-keys/' + (await sam.req('GET', '/api/company/api-keys')).json.data[0].id);
+  assert.equal((await sk('GET', '/api/v1/health')).status, 401, 'company admin revoked it');
+});
+
+test('personal webhooks: owners, account filtering, admin overview', async (t) => {
+  const env = await platform(t);
+  const { owner, base, ctx, fakes } = env;
+  const dep = await ctx.store.get('deployments', 'loc1aaaaaaaa');
+  await ctx.store.put('deployments', Object.assign({}, dep, { _id: 'loc2bbbbbbbb', name: 'Other Co' }));
+  await owner.req('POST', '/api/users', { email: 'bob@plumbing.com', kind: 'client', role: 'manager', locationIds: ['loc1aaaaaaaa'], password: 'bobpassword1' });
   const bob = client(base);
   await bob.req('POST', '/api/auth/login', { email: 'bob@plumbing.com', password: 'bobpassword1' });
-  assert.equal((await bob.req('GET', '/api/company/api-keys')).status, 403);
 
-  r = await owner.req('POST', '/api/company/api-keys', { name: 'Zapier', write: true, companyId: 'comp2' });
-  assert.equal(r.status, 200, r.text);
-  assert.equal(r.json.apiKey.companyId, 'comp1', 'always limited to the own company, whatever is sent');
-  const k = bearer(base, r.json.key);
-  r = await k('GET', '/api/v1/companies');
-  assert.deepEqual(r.json.data.map((c) => c.id), ['comp1']);
-  assert.equal((await k('GET', '/api/v1/calls/c_other')).status, 403);
-  assert.equal((await k('PATCH', '/api/v1/companies/comp1', { status: 'active' })).status, 403, 'company keys never change licenses');
-  r = await k('POST', '/api/v1/leads', { accountId: 'loc1aaaaaaaa', phone: '+15125550777', name: 'Lee' });
-  assert.equal(r.status, 201);
-
-  // The company sees only its own keys; the super admin sees all.
-  await admin.req('POST', '/api/admin/api-keys', { name: 'Platform BI' });
-  assert.deepEqual((await owner.req('GET', '/api/company/api-keys')).json.data.map((x) => x.name), ['Zapier']);
-  assert.equal((await admin.req('GET', '/api/admin/api-keys')).json.data.length, 2);
-  const otherPrefix = (await admin.req('GET', '/api/admin/api-keys')).json.data.find((x) => x.name === 'Platform BI').id;
-  assert.equal((await owner.req('DELETE', '/api/company/api-keys/' + otherPrefix)).status, 404);
-
-  // Webhooks: forced to the company; others' hooks are invisible and untouchable.
-  const adminHook = (await admin.req('POST', '/api/admin/webhooks', { url: 'https://hooks.example.test/platform' })).json.webhook.id;
-  r = await owner.req('POST', '/api/company/webhooks', { url: 'https://hooks.example.test/mine', companyId: 'comp2', events: ['call.ended'] });
+  let r = await bob.req('POST', '/api/company/webhooks', { url: 'https://hooks.example.test/bob', companyId: 'comp2' });
   assert.equal(r.json.webhook.companyId, 'comp1');
-  const mine = r.json.webhook.id;
-  assert.deepEqual((await owner.req('GET', '/api/company/webhooks')).json.data.map((x) => x.id), [mine]);
-  assert.equal((await owner.req('DELETE', '/api/company/webhooks/' + adminHook)).status, 404);
-  assert.equal((await owner.req('POST', '/api/company/webhooks/' + adminHook + '/test', {})).status, 404);
-  assert.equal((await owner.req('POST', '/api/company/webhooks/' + mine + '/test', {})).json.ok, true);
-  assert.ok((await owner.req('GET', '/api/company/webhook-deliveries')).json.data.every((d) => d.hookId === mine));
+  assert.deepEqual(r.json.webhook.accountIds, ['loc1aaaaaaaa']);
+  const bobHook = r.json.webhook.id;
+  const ownerHook = (await owner.req('POST', '/api/company/webhooks', { url: 'https://hooks.example.test/owner' })).json.webhook.id;
 
-  // Reference: no license endpoint; custom domain becomes the base URL once verified.
-  r = await owner.req('GET', '/api/company/api-reference');
-  assert.ok(!r.json.endpoints.some((e) => e.method === 'PATCH'));
-  assert.equal(r.json.companyId, 'comp1');
-  assert.equal(r.json.baseUrl, base);
-  await ctx.store.patch('agencies', 'comp1', { 'branding.domain': 'calls.acme.com' });
-  await ctx.store.put('domains', { _id: 'calls.acme.com', companyId: 'comp1', verified: true });
-  assert.equal((await owner.req('GET', '/api/company/api-reference')).json.baseUrl, 'https://calls.acme.com');
+  await ctx.store.log('comp1', 'lead.received', 'a', { locationId: 'loc2bbbbbbbb' });
+  await ctx.store.log('comp1', 'lead.received', 'b', { locationId: 'loc1aaaaaaaa' });
+  await ctx.store.log('comp1', 'company.status_changed', 'c');
+  await env.settle(); await env.settle();
+  const got = (fakes.state.hooks || []).map((x) => ({ to: x.headers['X-ACC-Delivery'], body: JSON.parse(x.body) }));
+  const bobs = (await bob.req('GET', '/api/company/webhook-deliveries')).json.data;
+  assert.deepEqual(bobs.map((d) => d.hookId).filter((v, i, a) => a.indexOf(v) === i), [bobHook]);
+  assert.equal(bobs.length, 1, 'only the event of his own account');
+  assert.equal(got.filter((g) => g.body.data.detail === 'b').length, 2, 'owner and Bob both get his account');
+  assert.equal(got.filter((g) => g.body.data.detail === 'a').length, 1, 'only the owner gets the other account');
+
+  // Visibility and control.
+  assert.deepEqual((await bob.req('GET', '/api/company/webhooks')).json.data.map((w) => w.id), [bobHook]);
+  assert.equal((await bob.req('DELETE', '/api/company/webhooks/' + ownerHook)).status, 404);
+  r = await owner.req('GET', '/api/company/webhooks');
+  assert.deepEqual(r.json.data.map((w) => w.id).sort(), [bobHook, ownerHook].sort());
+  assert.equal(r.json.data.find((w) => w.id === bobHook).owner.email, 'bob@plumbing.com');
+
+  // A disabled owner's webhook stops delivering.
+  const bobId = (await owner.req('GET', '/api/users')).json.users.find((u) => u.email === 'bob@plumbing.com').id;
+  await owner.req('PATCH', '/api/users/' + bobId, { disabled: true });
+  await ctx.store.log('comp1', 'lead.received', 'd', { locationId: 'loc1aaaaaaaa' });
+  await env.settle(); await env.settle();
+  const d = (await owner.req('GET', '/api/company/webhook-deliveries?hookId=' + bobHook)).json.data[0];
+  assert.equal(d.status, 'cancelled');
 });

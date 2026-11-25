@@ -14,8 +14,10 @@
   /* opts: { base, reload, companyPicker?: () => <select>, companyName?: (id) => string, intro? } */
   async function keys(body, opts) {
     const r = await api('GET', opts.base + '/api-keys');
+    const me = r.me || { admin: true, canWrite: true, accountIds: null };
+    const showOwner = me.admin && r.data.some((k) => k.owner);
     const name = h('input', { placeholder: 'Name, e.g. "Zapier" or "Reporting app"' });
-    const write = h('input', { type: 'checkbox' });
+    const write = h('input', { type: 'checkbox', disabled: !me.canWrite });
     const picker = opts.companyPicker ? opts.companyPicker() : null;
     const out = h('div');
     const create = h('button.btn.primary', { type: 'button' }, 'Create key');
@@ -27,18 +29,20 @@
         name.value = '';
       } catch (e) { toast(e.message, 'err'); }
     }));
-    const head = ['Name', 'Key', 'Access'].concat(opts.companyName ? ['Company'] : []).concat(['Created', 'Last used', '']);
+    const head = ['Name', 'Key', 'Access'].concat(showOwner ? ['Owner'] : []).concat(opts.companyName ? ['Company'] : []).concat(['Created', 'Last used', '']);
     body.append(h('div.card', h('h2', 'API keys'),
       h('p.muted', opts.intro || 'Give each app its own key. Read keys can only read; write keys can also send leads.'),
+      r.me ? h('p.note', 'Your keys have your access: ' + (me.accountIds ? 'only your ' + me.accountIds.length + ' account' + (me.accountIds.length === 1 ? '' : 's') : 'the whole company') + (me.canWrite ? '; read, and send leads if you allow writes.' : '; read only (your role cannot send leads).') + ' They stop working if your login is disabled or removed.' + (me.admin ? ' As an admin you also see, and can revoke, everyone\'s keys.' : '')) : null,
       table(head, r.data.map((k) => h('tr',
-        h('td', h('strong', k.name)), h('td', h('code', k.id + '…')), h('td', k.scopes.includes('write') ? 'read + write' : 'read'),
+        h('td', h('strong', k.name)), h('td', h('code', k.id + '…')), h('td', k.scopes.includes('write') ? 'read + write' : 'read', k.accountIds ? h('div.muted.small', k.accountIds.length + ' account' + (k.accountIds.length === 1 ? '' : 's')) : null),
+        showOwner ? h('td.small', k.owner ? (k.owner.name || k.owner.email) : '—', k.owner && k.owner.email && k.owner.name !== k.owner.email ? h('div.muted', k.owner.email) : null) : null,
         opts.companyName ? h('td.small', k.companyId ? opts.companyName(k.companyId) : 'All') : null,
         h('td.small', fmtTime(k.createdAt)), h('td.small', fmtTime(k.lastUsedAt) || 'never'),
         h('td', k.revoked ? badge('revoked', 'failed') : h('button.btn.small.danger', { on: { click: async () => {
           if (!confirm('Revoke "' + k.name + '"? Apps using it stop working immediately.')) return;
           await api('DELETE', opts.base + '/api-keys/' + encodeURIComponent(k.id)); opts.reload();
         } } }, 'Revoke'))))),
-      h('div.row', h('label', 'Name', name), picker ? h('label', 'Company', picker) : null, h('label.row', write, ' Allow writes (send leads)'), create), out));
+      h('div.row', h('label', 'Name', name), picker ? h('label', 'Company', picker) : null, me.canWrite ? h('label.row', write, ' Allow writes (send leads)') : null, create), out));
   }
 
   async function webhooks(body, opts) {
@@ -58,11 +62,13 @@
         out.append(h('div.note.ok', 'Webhook added. Signing secret (shown once): ', h('code', res.secret), ' ', copyBtn(res.secret), ' ', h('button.btn.small', { type: 'button', on: { click: opts.reload } }, 'Done')));
       } catch (e) { toast(e.message, 'err'); }
     }));
-    const head = ['URL', 'Events'].concat(opts.companyName ? ['Company'] : []).concat(['Last delivery', 'Active', '']);
+    const showOwner = w.me && w.me.admin && w.data.some((x) => x.owner);
+    const head = ['URL', 'Events'].concat(showOwner ? ['Owner'] : []).concat(opts.companyName ? ['Company'] : []).concat(['Last delivery', 'Active', '']);
     body.append(
       h('div.card', h('h2', 'Webhooks (' + w.data.length + ')'), h('p.muted', 'Events are sent to your URL as they happen: no polling needed.'),
         table(head, w.data.map((x) => h('tr',
-          h('td', h('code', x.url), x.description ? h('div.muted.small', x.description) : null), h('td.small', x.events.join(', ')),
+          h('td', h('code', x.url), x.description ? h('div.muted.small', x.description) : null), h('td.small', x.events.join(', '), x.accountIds ? h('div.muted', x.accountIds.length + ' account' + (x.accountIds.length === 1 ? '' : 's') + ' only') : null),
+          showOwner ? h('td.small', x.owner ? (x.owner.name || x.owner.email) : '—') : null,
           opts.companyName ? h('td.small', x.companyId ? opts.companyName(x.companyId) : 'All') : null,
           h('td.small', x.lastAt ? badge(x.lastStatus, kindOf(x.lastStatus)) : '—', x.lastAt ? ' ' + fmtTime(x.lastAt) : '', x.failures ? ' · ' + x.failures + ' failing' : ''),
           h('td', x.active ? 'yes' : 'paused'),
@@ -103,7 +109,7 @@
         h('li', h('span', 'Base URL'), h('span.row', h('code', base + '/api/v1'), copyBtn(base + '/api/v1'))),
         ref.companyId ? h('li', h('span', 'Your company id'), h('span.row', h('code', ref.companyId), copyBtn(ref.companyId))) : null,
         h('li', h('span', 'Authentication'), h('code', 'Authorization: Bearer <API key>')),
-        ref.companyId ? h('li', h('span', 'Data access'), h('span', 'Keys created here only ever see your own company, accounts, calls and leads.')) : null,
+        ref.companyId ? h('li', h('span', 'Data access'), h('span', ref.me && ref.me.accountIds ? 'Your keys only see your accounts: ' : 'Keys created here only ever see your own company, accounts, calls and leads.', ref.me && ref.me.accountIds ? h('code', ref.me.accountIds.join(', ')) : null)) : null,
         h('li', h('span', 'Format'), h('span', 'JSON. Times are ISO 8601 UTC. Errors: { "error": "message" } with HTTP 400/401/403/404/409/429.')),
         h('li', h('span', 'Pagination'), h('span', 'Lists return { data, nextBefore }. Pass ?before=<nextBefore> for the next page.')),
         h('li', h('span', 'Rate limit'), h('span', '600 requests per minute per key')),

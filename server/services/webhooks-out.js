@@ -65,7 +65,7 @@ function createOutgoingWebhooks(ctx, deps) {
   const invalidate = () => { cache = null; };
 
   function publicHook(w) {
-    return { id: w._id, url: w.url, events: w.events, companyId: w.companyId || null, active: !!w.active, description: w.description || '', createdAt: w.createdAt, lastStatus: w.lastStatus || null, lastAt: w.lastAt || null, failures: w.failures || 0 };
+    return { id: w._id, url: w.url, events: w.events, companyId: w.companyId || null, accountIds: w.locationIds || null, owner: w.owner ? { name: w.owner.name || '', email: w.owner.email || '' } : null, active: !!w.active, description: w.description || '', createdAt: w.createdAt, lastStatus: w.lastStatus || null, lastAt: w.lastAt || null, failures: w.failures || 0 };
   }
 
   async function create(input) {
@@ -75,21 +75,28 @@ function createOutgoingWebhooks(ctx, deps) {
     events = events.filter((e) => e === '*' || EVENT_TYPES.includes(e));
     if (!events.length) events = ['*'];
     const secret = 'whsec_' + randomToken(24);
-    const w = { _id: 'wh_' + randomToken(10), url, events, companyId: input.companyId ? String(input.companyId) : null, description: String(input.description || '').slice(0, 120), secret: sec.encrypt(secret), active: true, createdAt: new Date().toISOString(), failures: 0 };
+    const w = {
+      _id: 'wh_' + randomToken(10), url, events, companyId: input.companyId ? String(input.companyId) : null,
+      // Personal webhooks: the owner, and the accounts they may see (null = all).
+      owner: input.owner || null, locationIds: Array.isArray(input.locationIds) ? input.locationIds.map(String) : null,
+      description: String(input.description || '').slice(0, 120), secret: sec.encrypt(secret), active: true, createdAt: new Date().toISOString(), failures: 0
+    };
     await store.put('webhooks', w);
     invalidate();
     return { webhook: publicHook(w), secret };
   }
 
-  // ownerCompanyId: set when a company manages its own webhooks from its console.
-  async function owned(id, ownerCompanyId) {
+  /* owner: { companyId, uid } when managed from the console. uid null = a
+     company admin (all of the company's webhooks); undefined owner = Super Admin. */
+  const isOwned = (w, owner) => !owner || (w.companyId === owner.companyId && (!owner.uid || (w.owner && w.owner.uid === owner.uid)));
+  async function owned(id, owner) {
     const w = await store.get('webhooks', id);
-    if (!w || (ownerCompanyId && w.companyId !== ownerCompanyId)) throw Object.assign(new Error('Webhook not found'), { status: 404 });
+    if (!w || !isOwned(w, owner)) throw Object.assign(new Error('Webhook not found'), { status: 404 });
     return w;
   }
 
-  async function update(id, input, ownerCompanyId) {
-    await owned(id, ownerCompanyId);
+  async function update(id, input, owner) {
+    await owned(id, owner);
     const set = {};
     if (input.active !== undefined) set.active = !!input.active;
     if (input.url !== undefined) { const u = validUrl(input.url); if (!u) throw Object.assign(new Error('Use a public https:// URL'), { status: 400 }); set.url = u; }
@@ -100,12 +107,15 @@ function createOutgoingWebhooks(ctx, deps) {
     return publicHook(out);
   }
 
-  async function remove(id, ownerCompanyId) { await owned(id, ownerCompanyId); await store.remove('webhooks', id); invalidate(); }
-  async function list(ownerCompanyId) { return (await store.find('webhooks', ownerCompanyId ? { companyId: ownerCompanyId } : {}, { sort: { createdAt: -1 } })).map(publicHook); }
-  async function deliveries(hookId, limit, ownerCompanyId) {
+  async function remove(id, owner) { await owned(id, owner); await store.remove('webhooks', id); invalidate(); }
+  async function list(owner) {
+    const docs = await store.find('webhooks', owner ? { companyId: owner.companyId } : {}, { sort: { createdAt: -1 } });
+    return docs.filter((w) => isOwned(w, owner)).map(publicHook);
+  }
+  async function deliveries(hookId, limit, owner) {
     let f = hookId ? { hookId } : {};
-    if (ownerCompanyId) {
-      const mine = (await store.find('webhooks', { companyId: ownerCompanyId })).map((w) => w._id);
+    if (owner) {
+      const mine = (await store.find('webhooks', { companyId: owner.companyId })).filter((w) => isOwned(w, owner)).map((w) => w._id);
       if (hookId && !mine.includes(hookId)) return [];
       if (!hookId) f = { hookId: { $in: mine } };
     }
@@ -130,7 +140,7 @@ function createOutgoingWebhooks(ctx, deps) {
     const d = await store.get('webhookDeliveries', deliveryId);
     if (!d || d.status === 'delivered' || d.status === 'failed') return d;
     const w = await store.get('webhooks', d.hookId);
-    if (!w || !w.active) return store.patch('webhookDeliveries', deliveryId, { status: 'cancelled' });
+    if (!w || !w.active || !(await ownerStillAllowed(w))) return store.patch('webhookDeliveries', deliveryId, { status: 'cancelled' });
     const body = d.body;
     let code = 0, error = '';
     try {
@@ -153,11 +163,26 @@ function createOutgoingWebhooks(ctx, deps) {
     return { ok, code, error };
   }
 
+  // A personal webhook stops when its owner is disabled or deleted, or the company's license is not active.
+  async function ownerStillAllowed(w) {
+    if (!w.owner || !w.owner.uid || w.owner.uid === 'admin') return true;
+    if (w.companyId) {
+      const a = await store.get('agencies', w.companyId);
+      if (!a || !a.installed || a.status !== 'active') return false;
+    }
+    if (String(w.owner.uid).startsWith('ghl:')) return true;
+    const u = await store.get('users', w.owner.uid);
+    return !!(u && !u.disabled && u.companyId === w.companyId);
+  }
+
   // Called for every activity-log entry.
   async function onLog(companyId, logType, detail, extra) {
     const type = EVENT_MAP[logType];
     if (!type) return;
-    const targets = (await hooks()).filter((w) => (!w.companyId || w.companyId === companyId) && (w.events.includes('*') || w.events.includes(type)));
+    const loc = extra && extra.locationId;
+    const targets = (await hooks()).filter((w) => (!w.companyId || w.companyId === companyId) && (w.events.includes('*') || w.events.includes(type)) &&
+      // Hooks limited to some accounts only get those accounts' events.
+      (!w.locationIds || (loc && w.locationIds.includes(loc))));
     if (!targets.length) return;
     const evt = await payload(type, companyId, detail, extra);
     const body = JSON.stringify(evt);
@@ -168,8 +193,8 @@ function createOutgoingWebhooks(ctx, deps) {
     }
   }
 
-  async function sendTest(id, ownerCompanyId) {
-    const w = await owned(id, ownerCompanyId);
+  async function sendTest(id, owner) {
+    const w = await owned(id, owner);
     const evt = { id: 'evt_test_' + randomToken(8), type: 'ping', createdAt: new Date().toISOString(), companyId: w.companyId || null, data: { message: 'Test delivery from AI Call Center' } };
     const d = { _id: 'dlv_' + randomToken(10), hookId: w._id, eventId: evt.id, type: 'ping', body: JSON.stringify(evt), status: 'pending', attempts: MAX_ATTEMPTS - 1, createdAt: new Date().toISOString() };
     await store.put('webhookDeliveries', d);
